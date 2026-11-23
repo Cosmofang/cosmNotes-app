@@ -1,28 +1,26 @@
 import SwiftUI
 
-// MARK: - 磨砂玻璃背景 (NSVisualEffectView 桥接)
-
-struct FrostedGlass: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.material = .popover
-        view.blendingMode = .behindWindow
-        view.state = .active
-        return view
-    }
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
-}
-
 // macOS 27 起 isMovableByWindowBackground 不再把 SwiftUI 顶栏空白处当窗口背景, 显式接管拖动
 struct WindowDragArea: NSViewRepresentable {
+    var onDoubleClick: (() -> Void)?
+
     final class DragView: NSView {
+        var onDoubleClick: (() -> Void)?
+
         override var mouseDownCanMoveWindow: Bool { true }
         override func mouseDown(with event: NSEvent) {
-            window?.performDrag(with: event)
+            if event.clickCount == 2, let onDoubleClick {
+                onDoubleClick()
+            } else {
+                window?.performDrag(with: event)
+            }
         }
     }
+
     func makeNSView(context: Context) -> DragView { DragView() }
-    func updateNSView(_ nsView: DragView, context: Context) {}
+    func updateNSView(_ nsView: DragView, context: Context) {
+        nsView.onDoubleClick = onDoubleClick
+    }
 }
 
 struct NoteView: View {
@@ -62,27 +60,12 @@ struct NoteView: View {
             topBar
             if !note.isCollapsed {
                 content
+                    .transition(ExpansionMotion.transition)
             }
         }
-        .background {
-            // 玻璃拟态: 磨砂玻璃透出桌面 + 半透明色彩罩保证文字可读
-            ZStack {
-                FrostedGlass()
-                Color(nsColor: note.theme.background).opacity(0.82)
-            }
-        }
-        .clipShape(UnevenRoundedRectangle(cornerRadii: cornerRadii, style: .continuous))
-        .overlay {
-            // 玻璃边缘: 上亮下暗的渐变细线
-            UnevenRoundedRectangle(cornerRadii: cornerRadii, style: .continuous)
-                .strokeBorder(
-                    LinearGradient(
-                        colors: [.white.opacity(0.55), .white.opacity(0.08),
-                                 .black.opacity(0.06)],
-                        startPoint: .top, endPoint: .bottom),
-                    lineWidth: 1)
-        }
-        .animation(.spring(duration: 0.25), value: note.snappedEdge)
+        .glassPanel(in: UnevenRoundedRectangle(cornerRadii: cornerRadii, style: .continuous),
+                    tint: Color(nsColor: note.theme.background))
+        .animation(note.isCollapsed ? .spring(duration: 0.25) : ExpansionMotion.animation, value: note.snappedEdge)
         .onHover { h in
             withAnimation(.easeOut(duration: 0.18)) { hovering = h }
         }
@@ -111,13 +94,14 @@ struct NoteView: View {
     }
 
     private func barContent(compact: Bool) -> some View {
-        HStack(spacing: 8) {
+        let controlInk = ink.opacity(hovering ? 0.8 : 0.5)
+        return HStack(spacing: 8) {
             if !note.isCollapsed {
             // 关闭(删除)按钮
             Button(action: onClose) {
                 Image(systemName: "xmark")
                     .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(ink.opacity(hovering ? 0.55 : 0.22))
+                    .foregroundStyle(controlInk)
                     .frame(width: 17, height: 17)
                     .background(Circle().fill(ink.opacity(hovering ? 0.08 : 0.04)))
             }
@@ -131,7 +115,7 @@ struct NoteView: View {
             } label: {
                 Image(systemName: "plus")
                     .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(ink.opacity(hovering ? 0.55 : 0.22))
+                    .foregroundStyle(controlInk)
                     .frame(width: 17, height: 17)
                     .background(Circle().fill(ink.opacity(hovering ? 0.08 : 0.04)))
             }
@@ -242,7 +226,7 @@ struct NoteView: View {
                 } label: {
                     Image(systemName: "highlighter")
                         .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(highlighterMode ? accent : ink.opacity(hovering ? 0.55 : 0.22))
+                        .foregroundStyle(highlighterMode ? accent : controlInk)
                         .frame(width: 17, height: 17)
                         .background(Circle().fill(accent.opacity(highlighterMode ? 0.16 : 0)))
                 }
@@ -258,7 +242,7 @@ struct NoteView: View {
                 } label: {
                     Image(systemName: note.isPreview ? "pencil" : "eye")
                         .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(ink.opacity(hovering ? 0.55 : 0.22))
+                        .foregroundStyle(controlInk)
                         .frame(width: 17, height: 17)
                         .contentTransition(.symbolEffect(.replace))
                 }
@@ -274,7 +258,7 @@ struct NoteView: View {
                 Image(systemName: note.isCollapsed
                     ? "rectangle.expand.vertical" : "rectangle.compress.vertical")
                     .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(ink.opacity(hovering ? 0.55 : 0.22))
+                    .foregroundStyle(controlInk)
                     .frame(width: 17, height: 17)
             }
             .buttonStyle(.plain)
@@ -626,18 +610,18 @@ enum BoldShortcut {
     private static let keyKey = "boldShortcut.key"
     private static let modsKey = "boldShortcut.modifiers"
 
-    static var key: String { UserDefaults.standard.string(forKey: keyKey) ?? "b" }
+    static var key: String { AppIdentity.preferences.string(forKey: keyKey) ?? "b" }
 
     static var modifiers: NSEvent.ModifierFlags {
-        guard let raw = UserDefaults.standard.object(forKey: modsKey) as? UInt else {
+        guard let raw = AppIdentity.preferences.object(forKey: modsKey) as? UInt else {
             return [.command]
         }
         return NSEvent.ModifierFlags(rawValue: raw)
     }
 
     static func save(key: String, modifiers: NSEvent.ModifierFlags) {
-        UserDefaults.standard.set(key, forKey: keyKey)
-        UserDefaults.standard.set(modifiers.rawValue, forKey: modsKey)
+        AppIdentity.preferences.set(key, forKey: keyKey)
+        AppIdentity.preferences.set(modifiers.rawValue, forKey: modsKey)
     }
 
     static func matches(_ event: NSEvent) -> Bool {

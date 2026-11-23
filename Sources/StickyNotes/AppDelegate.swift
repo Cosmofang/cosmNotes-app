@@ -1,16 +1,23 @@
 import AppKit
+import CosmNotesWork
 import SwiftUI
 import ServiceManagement
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
+    @MainActor private lazy var updates = UpdateController()
     private var controllers: [UUID: NoteWindowController] = [:]
     private var historyWindow: NSWindow?
+    private lazy var workStore = WorkStore(
+        fileURL: AppIdentity.dataDirectory.appendingPathComponent("work-items.json"))
+    private lazy var workTimeline = WorkTimelineController(store: workStore)
+    private var didLoadNotes = false
+    private var pendingURLs: [URL] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // 单实例保护: 如果已经有一份在运行, 激活它并退出自己
         let running = NSRunningApplication.runningApplications(
-            withBundleIdentifier: Bundle.main.bundleIdentifier ?? "com.simony3.stickynotes")
+            withBundleIdentifier: AppIdentity.bundleIdentifier)
         if running.count > 1 {
             running.first { $0 != NSRunningApplication.current }?
                 .activate(options: [.activateAllWindows])
@@ -18,37 +25,62 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        AppAppearance.restore()
         setupStatusItem()
 
         NoteStore.shared.load()
+        didLoadNotes = true
+        let workCommandLaunch = ProcessInfo.processInfo.environment["COSMNOTES_BACKGROUND_WORK"] == "1"
+            || pendingURLs.contains { $0.scheme == AppIdentity.urlScheme && $0.host == "work-create" }
+        let showWorkOnLaunch = CommandLine.arguments.contains("--show-work")
+            || (!workCommandLaunch && NoteStore.shared.notes.isEmpty && !workStore.items.isEmpty)
         if NoteStore.shared.notes.isEmpty {
-            // 第一次使用给欢迎教程, 之后弹类型选择
-            if UserDefaults.standard.bool(forKey: "hasLaunchedBefore") {
-                promptNewNote()
-            } else {
-                createWelcomeNote()
-                UserDefaults.standard.set(true, forKey: "hasLaunchedBefore")
+            if !workCommandLaunch && !showWorkOnLaunch {
+                // 第一次使用给欢迎教程, 之后弹类型选择
+                if AppIdentity.preferences.bool(forKey: "hasLaunchedBefore") {
+                    if pendingURLs.isEmpty { promptNewNote() }
+                } else {
+                    createWelcomeNote()
+                    AppIdentity.preferences.set(true, forKey: "hasLaunchedBefore")
+                }
             }
         } else {
             NoteStore.shared.notes.forEach(showWindow)
         }
 
+        pendingURLs.forEach(handleURL)
+        pendingURLs.removeAll()
+
         if CommandLine.arguments.contains("--show-history") {
             showHistory()
         }
+        if showWorkOnLaunch {
+            showWorkTimeline()
+        }
+        updates.start()
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        updates.remindIfActive()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        guard didLoadNotes else { return }
         NoteStore.shared.saveNow()
     }
 
     /// 在启动台/访达里再次点开 app 时:
     /// 没有便签 → 创建一张新的; 已有便签 → 全部带到前面
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        guard didLoadNotes else { return true }
         // 通过 URL 创建便签时 open 也会触发 reopen, 跳过避免弹类型选择框
         if Date().timeIntervalSince(lastURLHandled) < 2 { return true }
         if controllers.isEmpty {
-            promptNewNote()
+            if workTimeline.window?.isVisible == true || !workStore.items.isEmpty {
+                showWorkTimeline()
+            } else {
+                promptNewNote()
+            }
         } else {
             showAll()
         }
@@ -57,15 +89,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: 菜单栏图标
 
+    @MainActor
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = NSImage(
-            systemSymbolName: "note.text", accessibilityDescription: "StickyNotes")
+            systemSymbolName: "note.text", accessibilityDescription: AppIdentity.name)
 
         let menu = NSMenu()
         menu.addItem(withTitle: "新建文字便签", action: #selector(newTextNote), keyEquivalent: "n")
         menu.addItem(withTitle: "新建待办事项", action: #selector(newTodoNote), keyEquivalent: "t")
         menu.addItem(withTitle: "历史便签", action: #selector(showHistory), keyEquivalent: "h")
+        menu.addItem(.separator())
+
+        menu.addItem(withTitle: "工作时间轴", action: #selector(showWorkTimeline), keyEquivalent: "")
+        menu.addItem(withTitle: "新增工作…", action: #selector(newWork), keyEquivalent: "")
         menu.addItem(.separator())
 
         let loginItem = NSMenuItem(
@@ -78,8 +115,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             action: #selector(setBoldShortcut), keyEquivalent: ""))
 
         menu.addItem(.separator())
-        menu.addItem(withTitle: "退出", action: #selector(quit), keyEquivalent: "q")
-        menu.items.forEach { $0.target = self }
+        updates.addMenuItems(to: menu, statusButton: statusItem.button)
+        menu.addItem(withTitle: "关于 \(AppIdentity.name)", action: #selector(showAbout), keyEquivalent: "")
+        menu.addItem(withTitle: "退出 \(AppIdentity.name)", action: #selector(quit), keyEquivalent: "q")
+        menu.items.filter { $0.target == nil }.forEach { $0.target = self }
         statusItem.menu = menu
     }
 
@@ -87,6 +126,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func newTextNote() { createNote(kind: .text) }
     @objc private func newTodoNote() { createNote(kind: .todo) }
+    @objc private func showWorkTimeline() { workTimeline.show() }
+    @objc private func newWork() { workTimeline.showNewWork() }
 
     /// 弹出类型选择, 再创建对应类型的便签
     private func promptNewNote() {
@@ -134,31 +175,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return note
     }
 
-    // MARK: URL Scheme (stickynotes://add?...)
+    // MARK: URL Scheme (cosmnotes://add?...)
     // 供命令行 / AI 工具以细粒度命令操作便签。
     // 数据始终由正在运行的 App 通过 NoteStore 修改和保存，
     // 避免外部工具直接重写 notes.json 造成竞争或数据丢失。
     //
     // 创建:
-    //   open "stickynotes://add?kind=todo&theme=mint&text=%E5%86%85%E5%AE%B9"
+    //   open "cosmnotes://add?kind=todo&theme=mint&text=%E5%86%85%E5%AE%B9"
     // 参数: kind=text|todo, theme=lemon|peach|mint|sky|lilac,
     //       mode=floating|normal|desktop, preview=1, collapsed=1, text=百分号编码内容,
     //       highlight/bold=荧光和加粗范围, 格式 "起点,长度;起点,长度" (UTF-16), 空串=清空
-    // 更新: stickynotes://update?id=<UUID>&text=...&theme=...&mode=...&preview=0|1&collapsed=0|1
+    // 更新: cosmnotes://update?id=<UUID>&text=...&theme=...&mode=...&preview=0|1&collapsed=0|1
     //       &highlight=...&bold=...  (改了 text 又不传标记, 旧标记会被清空)
-    // 删除: stickynotes://delete?id=<UUID>
-    // 恢复: stickynotes://restore?id=<历史记录 UUID>
-    // 删除历史: stickynotes://history-delete?id=<历史记录 UUID>
-    // 移动/缩放: stickynotes://frame?id=<UUID>&x=...&y=...&w=...&h=...
+    // 删除: cosmnotes://delete?id=<UUID>
+    // 恢复: cosmnotes://restore?id=<历史记录 UUID>
+    // 删除历史: cosmnotes://history-delete?id=<历史记录 UUID>
+    // 移动/缩放: cosmnotes://frame?id=<UUID>&x=...&y=...&w=...&h=...
 
     private var lastURLHandled = Date.distantPast
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        for url in urls { handleURL(url) }
+        guard didLoadNotes else {
+            pendingURLs.append(contentsOf: urls)
+            return
+        }
+        urls.forEach(handleURL)
     }
 
     private func handleURL(_ url: URL) {
-        guard url.scheme == "stickynotes",
+        guard url.scheme == AppIdentity.urlScheme,
               let comps = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return }
         lastURLHandled = Date()
 
@@ -166,6 +211,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         comps.queryItems?.forEach { q[$0.name] = $0.value }
 
         switch url.host {
+        case "work-create":
+            guard let rawID = q["id"], let id = UUID(uuidString: rawID) else { return }
+            do {
+                _ = try WorkInbox.applyCreate(id: id, directory: AppIdentity.dataDirectory, store: workStore)
+                workTimeline.show(activate: false)
+            } catch {
+                NSLog("cosmNotes: 无法完成工作新增请求 %@", id.uuidString)
+            }
         case "add":
             let text = q["text"] ?? ""
             createNote(
@@ -333,8 +386,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         sender.title = "加粗快捷键: \(BoldShortcut.display)"
     }
 
+    @objc private func showAbout() {
+        NSApp.activate()
+        NSApp.orderFrontStandardAboutPanel(options: [
+            .applicationName: AppIdentity.name,
+            .credits: NSAttributedString(string: "StickyNotes 大神的迭代版\n原作者 simony3 · StickyNotes v2.2.0 · MIT")
+        ])
+    }
+
     @objc private func quit() {
-        NoteStore.shared.saveNow()
         NSApp.terminate(nil)
     }
 
@@ -353,7 +413,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.window?.alphaValue = 0
         controller.window?.orderFront(nil)
         NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.22
+            ctx.duration = ExpansionMotion.duration
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
             controller.window?.animator().alphaValue = 1
         }
         if note.mode != .desktop {
@@ -408,7 +469,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let screen = NSScreen.main?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
         let note = Note(
             text: """
-            # 欢迎使用便签 👋
+            # 欢迎使用 \(AppIdentity.name) 👋
 
             这是一张支持 **Markdown** 的便签:
 

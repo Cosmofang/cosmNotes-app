@@ -1,8 +1,10 @@
-# StickyNotes 📝
+# cosmNotes
 
 [中文](README.md) | **English**
 
-A lightweight, beautiful sticky notes app for macOS. Built with native Swift + SwiftUI, zero third-party dependencies — the compiled binary is only a few hundred KB.
+A lightweight macOS sticky notes app built with Swift and SwiftUI, with zero third-party dependencies.
+
+cosmNotes is an independent iteration of StickyNotes v2.2.0 by simony3, credited in the app as “StickyNotes 大神的迭代版”. The repository and app bundle include the original MIT license and copyright notice. [StickyNotes v2.2.0](https://github.com/simony3/StickyNotes/tree/v2.2.0)
 
 ## Screenshots
 
@@ -49,18 +51,49 @@ drag it near the left/right screen edge to snap flush, with the edge-side corner
 
 ## Install
 
-Requires macOS 14+ and Xcode Command Line Tools (`xcode-select --install`).
+Requires macOS 14 or later. Download and unzip the archive, then drag `cosmNotes.app` to Applications. The archive supports Apple Silicon and Intel Macs and uses an ad-hoc signature. [Download the latest version](https://github.com/Cosmofang/cosmNotes-app/releases/latest)
+
+You can also build from source after installing Xcode Command Line Tools with `xcode-select --install`.
 
 ```bash
-git clone git@github.com:simony3/StickyNotes.git
-cd StickyNotes
+git clone https://github.com/Cosmofang/cosmNotes-app.git
+cd cosmNotes-app
 ./build.sh
-open /Applications/StickyNotes.app
 ```
 
-`build.sh` compiles, packages the `.app`, signs it (ad-hoc), and installs it to `/Applications`.
+`build.sh` produces an ad-hoc signed app at `build/cosmNotes.app`.
+
+### Updates
+
+cosmNotes checks GitHub Releases at launch and every four hours while it runs. The menu bar shows when a new version is available. Use Check for Updates to check immediately. Choose Download Update to get the ZIP. Unzip it, quit the current app, and drag the new app into Applications to update.
 
 ## Usage
+
+Expand the Work Timeline and click anywhere on the sun and moon switch in the upper right to toggle between light and dark appearances. Notes, the calendar, and forms switch together, and the app remembers your choice after relaunch. Native Liquid Glass controls are available on macOS 26 and later.
+
+### Work Timeline
+
+Open Work Timeline or New Work from the menu bar. Each work item needs a title and a due date. The overview is optional.
+
+The Work Timeline opens as a normal window by default. Use the pin in the title bar to toggle always-on-top mode. The app remembers this setting. Use the arrow to collapse or expand the timeline.
+
+The timeline calendar uses project colors for deadlines. One day appears as a dot, and consecutive dates for the same project form a line. Use the button in the month header to collapse the calendar. Browse by month and click a day to filter the list. Use All Dates to clear the filter. In the work editor, click the due date to open the calendar picker.
+
+Drag the handle beside the month heading down to place the calendar below the project list, or up to move it back above. The app remembers its position.
+
+Drag an edge or corner of the expanded window to resize it. The timeline remembers that size after folding or reopening the app.
+
+Project chips fit their names and wrap onto new lines. Click the pencil beside a project to edit its name and color. Drag a work title onto a project to assign it, or onto Unassigned to remove the assignment. Click a project to see its work. The new-work and edit forms also have a project picker.
+
+All Work shows a project tree. Drag the handle on the right of a project row up or down. Nearby rows make room, and the dashed outline shows where the project will land. The app saves the order and updates the project chips above. Click a project row to expand or collapse its work independently. When all projects are collapsed, use Add Project at the bottom of the list to create a project. When a project is expanded or viewed on its own, Add Work at the bottom of its list opens the form with that project selected. New Work at the bottom of the Unassigned list opens the form with Unassigned selected.
+
+Click a work title to expand or collapse its overview below. Existing notes appear in the overview. Use Add Overview or the item's pencil button to enter or edit the text.
+
+Click the pin beside an item to move it to the Pinned section at the top. Click it again to return the item to its date group. By default, pending work is ordered by due date within each section. Completed work moves to Completed. Reopening a previously pinned item returns it to Pinned.
+
+Drag the handle on the right of a work item to reorder it within the same section of its project. The app saves the order for the next launch.
+
+### Sticky Notes
 
 | Action | How |
 |---|---|
@@ -90,12 +123,13 @@ open /Applications/StickyNotes.app
 
 ## AI Integration (MCP)
 
-The project ships a zero-dependency [MCP](https://modelcontextprotocol.io/) server (`mcp/stickynotes_mcp.py`, runs on the system Python) that exposes sticky-note capabilities to any MCP-compatible AI client (Codex, Claude Desktop, Claude Code, etc.). Once configured, just tell your AI "put tomorrow's study plan on a sticky note" and it appears on screen.
+The app includes an MCP server that uses the Python 3 standard library. After connecting Codex, try “Add Draft weekly report to cosmNotes, due on 2026-11-20.” Once the app saves the item, the tool returns its title, due date, and ID. [MCP](https://modelcontextprotocol.io/)
 
 **Available tools:**
 
 | Tool | Description |
 |---|---|
+| `create_work` | Add a work item with a `title` and `due_date` (`YYYY-MM-DD`). Use optional `notes` for the overview. |
 | `create_note` | Create a note (full parameters: type / color / window mode / collapsed, plus words to highlight or bold) |
 | `update_note` | Change content, color, window mode, preview, or collapsed state by id — and reset highlight/bold marks |
 | `delete_note` | Delete a note (non-empty content is archived automatically) |
@@ -107,41 +141,52 @@ The project ships a zero-dependency [MCP](https://modelcontextprotocol.io/) serv
 
 Marks are specified by text, not offsets: `highlight: ["key point"]` paints every occurrence of "key point" in the note, and `bold` works the same way; pass `[]` to clear. When `update_note` only replaces the text, existing highlights and bold runs are re-anchored by the words they covered, so an AI rewording one sentence doesn't wipe them all.
 
-Everyday changes are sent to the running app as granular commands, so the MCP server neither rewrites the JSON database nor restarts the app. The bulk migration/recovery tools `admin_export_data` and `admin_overwrite_data` are hidden by default. Set `STICKYNOTES_ENABLE_ADMIN_TOOLS=1` for the MCP process to expose them; an overwrite also requires an exact data revision and explicit confirmation.
+cosmNotes receives and saves everyday changes. For bulk migration or recovery, set `COSMNOTES_ENABLE_ADMIN_TOOLS=1` in the MCP process environment to enable `admin_export_data` and `admin_overwrite_data`. An overwrite also requires the current data revision and explicit confirmation.
 
-**Setup (Codex desktop)** — append to `~/.codex/config.toml`:
+For Codex desktop, add the following to `~/.codex/config.toml`.
 
 ```toml
-[mcp_servers.stickynotes]
+[mcp_servers.cosmnotes]
 command = "python3"
-args = ["/path/to/StickyNotes/mcp/stickynotes_mcp.py"]
+args = ["/Applications/cosmNotes.app/Contents/Resources/mcp/cosmnotes_mcp.py"]
 ```
 
-**Setup (Claude Code):**
+To register the MCP server in Claude Code, run the following command.
 
 ```bash
-claude mcp add stickynotes -- python3 /path/to/StickyNotes/mcp/stickynotes_mcp.py
+claude mcp add cosmnotes -- python3 /Applications/cosmNotes.app/Contents/Resources/mcp/cosmnotes_mcp.py
 ```
 
 Restart the client and the AI will see the tools above.
 
 ## Data Storage
 
-Notes are saved to `~/Library/Application Support/StickyNotes/notes.json` as plain JSON, easy to back up and migrate.
+Active notes, history, work, and projects are stored as plain JSON in `notes.json`, `history.json`, `work-items.json`, and `work-projects.json` under `~/Library/Application Support/cosmNotes/`.
+
+For isolated tests, quit the running copy of cosmNotes and set the same `COSMNOTES_DATA_DIR` for the app and MCP process before launching. When running the MCP script from source, set `COSMNOTES_APP_PATH` to point to a test app bundle.
 
 ## Project Structure
 
 ```
 Sources/StickyNotes/
 ├── main.swift          # Entry point, NSApplication startup, hidden Edit menu (keyboard shortcuts)
+├── AppIdentity.swift   # App identity, preferences, and data directory
 ├── AppDelegate.swift   # Menu bar, note window management, type picker, URL interface
 ├── Note.swift          # Data model + JSON persistence + todo item I/O + history archiving
 ├── NoteView.swift      # SwiftUI views: note view, todo list, Markdown rendering, capsule bar
 ├── HistoryView.swift   # History window: grouped by date, restore, permanent delete
+├── WorkTimeline.swift  # Floating timeline and editor
 └── NoteWindow.swift    # Borderless window, three layer modes, collapse & edge snapping
+Sources/CosmNotesWork/  # Work storage, calendar rules, and local requests
 mcp/
-└── stickynotes_mcp.py  # MCP server: entry point for AI clients to control notes
+└── cosmnotes_mcp.py    # MCP server: entry point for AI clients to control notes
 ```
+
+## Contribute
+
+Create a branch from `main` and submit a pull request. If you need write access for your branch, fork the repository and submit from the fork. GitHub Actions builds the app and checks work storage, window geometry, and update detection. [Public repository](https://github.com/Cosmofang/cosmNotes-app)
+
+To publish a release, update the version and build number in `Resources/Info.plist`. Push the matching `vMAJOR.MINOR.PATCH` tag for the merged commit. GitHub Actions publishes the universal ZIP and its SHA-256 checksum to Releases.
 
 ## License
 

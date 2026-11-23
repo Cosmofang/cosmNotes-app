@@ -221,7 +221,10 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate {
             // 展开定位需要知道折叠条来自哪一侧；必须在清除吸附状态前保存。
             let snappedEdge = note.snappedEdge
             let visibleFrame = window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame
-            note.isCollapsed = false
+            withAnimation(ExpansionMotion.animation) {
+                note.isCollapsed = false
+                note.snappedEdge = nil
+            }
             window.styleMask.insert(.resizable)
             window.minSize = expandedMinSize
             let target: CGRect
@@ -245,10 +248,9 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate {
                     width: note.expandedFrame.width,
                     height: note.expandedFrame.height)
             }
-            window.setFrame(target, display: true, animate: true)
+            window.setFrame(target, display: true, animate: false)
             note.frame = target
             note.expandedFrame = target
-            note.snappedEdge = nil
         } else {
             note.expandedFrame = window.frame
             if let visibleFrame = window.screen?.visibleFrame {

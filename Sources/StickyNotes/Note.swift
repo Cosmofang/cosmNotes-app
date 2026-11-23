@@ -16,54 +16,69 @@ enum NoteTheme: String, Codable, CaseIterable {
         }
     }
 
-    /// 便签主体背景色 (低饱和莫兰迪色, 叠在磨砂玻璃上)
+    private static let darkBase = NSColor(srgbRed: 0.08, green: 0.09, blue: 0.12, alpha: 1)
+
+    /// 便签玻璃底色随应用外观调整。
     var background: NSColor {
-        switch self {
-        case .lemon: return NSColor(red: 0.97, green: 0.95, blue: 0.88, alpha: 1)
-        case .peach: return NSColor(red: 0.98, green: 0.93, blue: 0.91, alpha: 1)
-        case .mint:  return NSColor(red: 0.92, green: 0.95, blue: 0.92, alpha: 1)
-        case .sky:   return NSColor(red: 0.92, green: 0.94, blue: 0.97, alpha: 1)
-        case .lilac: return NSColor(red: 0.95, green: 0.93, blue: 0.97, alpha: 1)
+        let light = switch self {
+        case .lemon: NSColor(red: 0.97, green: 0.95, blue: 0.88, alpha: 1)
+        case .peach: NSColor(red: 0.98, green: 0.93, blue: 0.91, alpha: 1)
+        case .mint:  NSColor(red: 0.92, green: 0.95, blue: 0.92, alpha: 1)
+        case .sky:   NSColor(red: 0.92, green: 0.94, blue: 0.97, alpha: 1)
+        case .lilac: NSColor(red: 0.95, green: 0.93, blue: 0.97, alpha: 1)
         }
+        let dark = Self.darkBase.blended(withFraction: 0.24, of: baseAccent) ?? Self.darkBase
+        return Self.adaptive(light, dark: dark)
     }
 
     /// 顶栏轻微加深的颜色
     var bar: NSColor {
-        switch self {
-        case .lemon: return NSColor(red: 0.93, green: 0.89, blue: 0.76, alpha: 1)
-        case .peach: return NSColor(red: 0.95, green: 0.85, blue: 0.82, alpha: 1)
-        case .mint:  return NSColor(red: 0.84, green: 0.90, blue: 0.85, alpha: 1)
-        case .sky:   return NSColor(red: 0.83, green: 0.88, blue: 0.94, alpha: 1)
-        case .lilac: return NSColor(red: 0.88, green: 0.84, blue: 0.94, alpha: 1)
+        let light = switch self {
+        case .lemon: NSColor(red: 0.93, green: 0.89, blue: 0.76, alpha: 1)
+        case .peach: NSColor(red: 0.95, green: 0.85, blue: 0.82, alpha: 1)
+        case .mint:  NSColor(red: 0.84, green: 0.90, blue: 0.85, alpha: 1)
+        case .sky:   NSColor(red: 0.83, green: 0.88, blue: 0.94, alpha: 1)
+        case .lilac: NSColor(red: 0.88, green: 0.84, blue: 0.94, alpha: 1)
         }
+        let dark = Self.darkBase.blended(withFraction: 0.36, of: baseAccent) ?? Self.darkBase
+        return Self.adaptive(light, dark: dark)
     }
 
     /// 同色系强调色 (勾选框、引用条、选中态)
     var accent: NSColor {
+        let light = baseAccent
+        return Self.adaptive(light, dark: light.blended(withFraction: 0.35, of: .white) ?? light)
+    }
+
+    private var baseAccent: NSColor {
         switch self {
-        case .lemon: return NSColor(red: 0.71, green: 0.58, blue: 0.22, alpha: 1)
-        case .peach: return NSColor(red: 0.80, green: 0.47, blue: 0.40, alpha: 1)
-        case .mint:  return NSColor(red: 0.36, green: 0.58, blue: 0.44, alpha: 1)
-        case .sky:   return NSColor(red: 0.34, green: 0.53, blue: 0.74, alpha: 1)
-        case .lilac: return NSColor(red: 0.55, green: 0.45, blue: 0.73, alpha: 1)
+        case .lemon: NSColor(red: 0.71, green: 0.58, blue: 0.22, alpha: 1)
+        case .peach: NSColor(red: 0.80, green: 0.47, blue: 0.40, alpha: 1)
+        case .mint:  NSColor(red: 0.36, green: 0.58, blue: 0.44, alpha: 1)
+        case .sky:   NSColor(red: 0.34, green: 0.53, blue: 0.74, alpha: 1)
+        case .lilac: NSColor(red: 0.55, green: 0.45, blue: 0.73, alpha: 1)
         }
     }
 
     /// 针对每种便签底色挑选的对比荧光色。
     /// 高亮只保存文字范围，切换主题时会自动改用这里的新颜色。
     var highlighter: NSColor {
-        switch self {
-        case .lemon: return NSColor(red: 1.00, green: 0.38, blue: 0.30, alpha: 0.44) // 珊瑚红
-        case .peach: return NSColor(red: 1.00, green: 0.72, blue: 0.08, alpha: 0.56) // 琥珀黄
-        case .mint:  return NSColor(red: 0.57, green: 0.36, blue: 1.00, alpha: 0.42) // 明亮紫
-        case .sky:   return NSColor(red: 0.55, green: 0.86, blue: 0.22, alpha: 0.48) // 青柠绿
-        case .lilac: return NSColor(red: 0.12, green: 0.78, blue: 0.69, alpha: 0.45) // 湖水青
+        let light = switch self {
+        case .lemon: NSColor(red: 1.00, green: 0.38, blue: 0.30, alpha: 0.44) // 珊瑚红
+        case .peach: NSColor(red: 1.00, green: 0.72, blue: 0.08, alpha: 0.56) // 琥珀黄
+        case .mint:  NSColor(red: 0.57, green: 0.36, blue: 1.00, alpha: 0.42) // 明亮紫
+        case .sky:   NSColor(red: 0.55, green: 0.86, blue: 0.22, alpha: 0.48) // 青柠绿
+        case .lilac: NSColor(red: 0.12, green: 0.78, blue: 0.69, alpha: 0.45) // 湖水青
         }
+        return Self.adaptive(light, dark: light.withAlphaComponent(light.alphaComponent * 0.65))
     }
 
-    /// 正文文字颜色 (暖墨色, 深一点保证醒目)
-    var text: NSColor {
-        NSColor(red: 0.16, green: 0.15, blue: 0.13, alpha: 1)
+    var text: NSColor { .labelColor }
+
+    private static func adaptive(_ light: NSColor, dark: NSColor) -> NSColor {
+        NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
+        }
     }
 }
 
@@ -536,8 +551,7 @@ final class NoteStore: ObservableObject {
     private var saveWorkItem: DispatchWorkItem?
 
     private var dir: URL {
-        let d = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("StickyNotes", isDirectory: true)
+        let d = AppIdentity.dataDirectory
         try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
         return d
     }

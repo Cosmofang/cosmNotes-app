@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
-"""StickyNotes MCP 服务器 (stdio, 零依赖)
+"""cosmNotes MCP 服务器 (stdio, 零依赖)
 
-日常工具通过 stickynotes:// 把细粒度命令交给 App 执行，App 是唯一的
+日常工具通过 cosmnotes:// 把细粒度命令交给 App 执行，App 是唯一的
 数据写入者，因此增删改、窗口模式、折叠、移动和历史恢复都无需重启。
 
 直接整体导入 JSON 的管理员工具默认不暴露；只有显式设置
-STICKYNOTES_ENABLE_ADMIN_TOOLS=1 时才能使用。
+COSMNOTES_ENABLE_ADMIN_TOOLS=1 时才能使用。
 """
 import datetime
 import hashlib
 import json
 import math
 import os
+from pathlib import Path
+import plistlib
 import shutil
 import subprocess
 import sys
@@ -19,11 +21,57 @@ import time
 import urllib.parse
 import uuid
 
-DATA_DIR = os.path.expanduser("~/Library/Application Support/StickyNotes")
-APP_PATH = "/Applications/StickyNotes.app"
-ADMIN_ENABLED = os.environ.get("STICKYNOTES_ENABLE_ADMIN_TOOLS") == "1"
+APP_NAME = "cosmNotes"
+BUNDLE_IDENTIFIER = "com.cosmofang.cosmnotes"
+URL_SCHEME = "cosmnotes"
+DATA_DIR_OVERRIDE = os.environ.get("COSMNOTES_DATA_DIR")
+DATA_DIR = os.path.abspath(os.path.expanduser(
+    DATA_DIR_OVERRIDE or "~/Library/Application Support/" + APP_NAME))
+ADMIN_ENABLED = os.environ.get("COSMNOTES_ENABLE_ADMIN_TOOLS") == "1"
+
+
+def _app_path():
+    override = os.environ.get("COSMNOTES_APP_PATH")
+    if override:
+        return os.path.abspath(os.path.expanduser(override))
+    for parent in Path(__file__).resolve().parents:
+        if parent.suffix == ".app":
+            return str(parent)
+    return "/Applications/" + APP_NAME + ".app"
+
+
+APP_PATH = _app_path()
 
 BASE_TOOLS = [
+    {
+        "name": "create_work",
+        "description": (
+            "在 cosmNotes 工作时间轴新增一条有截止日期的工作。"
+            "把用户明确给出的相对日期按其本地日期换算为 YYYY-MM-DD。"
+            "日期缺失或有歧义时先问用户，确认后再调用。"
+            "返回成功时，这条工作已经保存到本机。"
+        ),
+        "annotations": {
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": False,
+        },
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "工作标题"},
+                "due_date": {
+                    "type": "string",
+                    "format": "date",
+                    "description": "工作截止日期 (YYYY-MM-DD，按用户本地日期)",
+                },
+                "notes": {"type": "string", "description": "工作概要（选填）"},
+            },
+            "required": ["title", "due_date"],
+            "additionalProperties": False,
+        },
+    },
     {
         "name": "create_note",
         "description": (
@@ -188,7 +236,7 @@ BASE_TOOLS = [
     },
     {
         "name": "show_history",
-        "description": "打开 StickyNotes 的历史便签窗口。",
+        "description": "打开 cosmNotes 的历史便签窗口。",
         "inputSchema": {"type": "object", "properties": {}},
     },
 ]
@@ -311,6 +359,16 @@ def _atomic_write_json(path, data):
             os.remove(temp)
 
 
+def _app_is_running():
+    result = subprocess.run(
+        ["/usr/bin/pgrep", "-x", APP_NAME], stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL, timeout=10)
+    if result.returncode == 1:
+        return False
+    result.check_returncode()
+    return True
+
+
 def admin_overwrite_data(args):
     if not ADMIN_ENABLED:
         raise PermissionError("管理员工具未启用")
@@ -333,14 +391,18 @@ def admin_overwrite_data(args):
 
     # 只有管理员批量导入才需要暂停 App。停止后再校验一次版本，
     # 因为 App 在退出时可能刚好落盘了最后一次编辑。
-    was_running = subprocess.run(
-        ["pgrep", "-x", "StickyNotes"], stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL, timeout=10).returncode == 0
+    was_running = _app_is_running()
     if was_running:
-        subprocess.run(["pkill", "-x", "StickyNotes"], check=False, timeout=10)
-        time.sleep(0.8)
+        _validate_app_bundle()
+        subprocess.run(["/usr/bin/pkill", "-x", APP_NAME], check=True, timeout=10)
 
     try:
+        if was_running:
+            deadline = time.monotonic() + 5
+            while _app_is_running():
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("cosmNotes 尚未退出，已取消导入")
+                time.sleep(0.1)
         if expected != _data_revision():
             raise ValueError("App 退出时保存了新数据，本次导入已取消；请重新导出")
         os.makedirs(DATA_DIR, exist_ok=True)
@@ -349,8 +411,8 @@ def admin_overwrite_data(args):
             _backup(path)
             _atomic_write_json(path, data)
     finally:
-        if was_running:
-            subprocess.run(["open", APP_PATH], check=True, timeout=10)
+        if was_running and not _app_is_running():
+            _open_app()
 
     return "已导入 {}，原文件已作时间戳备份（最多保留 10 份）".format("、".join(writes))
 
@@ -434,11 +496,78 @@ def _validate_choice(value, choices, label):
         raise ValueError("{} 非法: {}".format(label, value))
 
 
-def _open_command(host, params=None):
-    url = "stickynotes://{}".format(host)
+def _validate_app_bundle():
+    with open(os.path.join(APP_PATH, "Contents", "Info.plist"), "rb") as plist:
+        info = plistlib.load(plist)
+    if info.get("CFBundleIdentifier") != BUNDLE_IDENTIFIER:
+        raise ValueError("应用路径未指向 cosmNotes：{}".format(APP_PATH))
+
+
+def _open_app(url=None, *, background=False):
+    _validate_app_bundle()
+    command = ["/usr/bin/open"]
+    if background:
+        command.extend(["-g", "--env", "COSMNOTES_BACKGROUND_WORK=1"])
+    if DATA_DIR_OVERRIDE:
+        command.extend(["--env", "COSMNOTES_DATA_DIR=" + DATA_DIR])
+    if url is None:
+        command.append(APP_PATH)
+    else:
+        command.extend(["-a", APP_PATH, "-u", url])
+    subprocess.run(command, check=True, timeout=10)
+
+
+def _open_command(host, params=None, *, background=False):
+    url = "{}://{}".format(URL_SCHEME, host)
     if params:
         url += "?" + _encode(params)
-    subprocess.run(["open", url], check=True, timeout=10)
+    _open_app(url, background=background)
+
+
+def create_work(args):
+    title = args.get("title")
+    notes = args.get("notes", "")
+    due_date = args.get("due_date")
+    if not isinstance(title, str) or not title.strip():
+        raise ValueError("请输入工作标题。")
+    title = title.strip()
+    if len(title.encode("utf-8")) > 512:
+        raise ValueError("工作标题太长，请缩短后再保存。")
+    if not isinstance(notes, str) or len(notes.encode("utf-8")) > 8192:
+        raise ValueError("概要需为文本且不超过 8192 字节。")
+    try:
+        canonical_day = datetime.date.fromisoformat(due_date).isoformat()
+    except (TypeError, ValueError):
+        canonical_day = None
+    if canonical_day is None or canonical_day != due_date:
+        raise ValueError("需要明确且有效的截止日期 (YYYY-MM-DD)。")
+
+    work_id = str(uuid.uuid4())
+    payload = {"title": title, "dueDate": due_date, "notes": notes}
+    inbox = Path(DATA_DIR) / "work-requests"
+    inbox.mkdir(mode=0o700, parents=True, exist_ok=True)
+    request = inbox / (work_id + ".json")
+    descriptor = os.open(request, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as out:
+            json.dump(payload, out, ensure_ascii=False)
+        try:
+            _open_command("work-create", {"id": work_id}, background=True)
+        except subprocess.TimeoutExpired:
+            # Launch Services may already have delivered the wake-up. Check disk before reporting.
+            pass
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
+            if any(
+                row.get("id", "").lower() == work_id
+                and all(row.get(key) == value for key, value in payload.items())
+                for row in _load("work-items.json")
+            ):
+                return "已新增工作「{}」，截止日期 {}。记录 ID {}。".format(title, due_date, work_id)
+            time.sleep(0.12)
+        raise RuntimeError("未能确认工作已保存（记录 ID {}）。请核对时间轴后再提交。".format(work_id))
+    finally:
+        request.unlink(missing_ok=True)
 
 
 def create_note(args):
@@ -629,6 +758,7 @@ def list_history(_args):
 
 
 HANDLERS = {
+    "create_work": create_work,
     "create_note": create_note,
     "update_note": update_note,
     "list_notes": list_notes,
@@ -679,7 +809,7 @@ def main():
                 "protocolVersion": msg.get("params", {}).get(
                     "protocolVersion", "2024-11-05"),
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "stickynotes", "version": "1.2.0"},
+                "serverInfo": {"name": URL_SCHEME, "version": "1.2.0"},
             })
         elif method == "tools/list":
             reply(msg_id, {"tools": TOOLS})

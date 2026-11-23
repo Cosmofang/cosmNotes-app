@@ -48,6 +48,7 @@ struct HistoryView: View {
                         Section {
                             ForEach(group.notes) { item in
                                 row(item)
+                                    .listRowBackground(Color.clear)
                             }
                         } header: {
                             Text(Self.dayFormatter.string(from: group.day))
@@ -56,9 +57,11 @@ struct HistoryView: View {
                     }
                 }
                 .listStyle(.inset)
+                .scrollContentBackground(.hidden)
             }
         }
         .frame(minWidth: 400, minHeight: 320)
+        .background(.regularMaterial)
         .alert("彻底删除这条历史?", isPresented: Binding(
             get: { pendingDelete != nil },
             set: { if !$0 { pendingDelete = nil } }
@@ -120,7 +123,8 @@ struct HistoryView: View {
             }
             .padding(.top, 2)
         }
-        .padding(.vertical, 4)
+        .padding(8)
+        .glassCard(in: RoundedRectangle(cornerRadius: 10))
     }
 
     @ViewBuilder

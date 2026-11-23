@@ -1,0 +1,50 @@
+name: macOS build and release
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Check the app
+        run: |
+          swift run CosmNotesWorkChecks
+          swift run StickyNotesGeometryChecks
+          swift run CosmNotesUpdateChecks
+          ./build.sh
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: checks
+    runs-on: macos-15
+    permissions:
+      contents: write
+    concurrency:
+      group: release-${{ github.ref }}
+    env:
+      RELEASE_TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Build the universal app
+        run: |
+          version="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' Resources/Info.plist)"
+          if [[ "$RELEASE_TAG" != "v$version" || ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "The tag must match the app version as vMAJOR.MINOR.PATCH."
+            exit 1
+          fi
+          ./build.sh --release
+      - name: Publish to GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          archive="build/cosmNotes-$RELEASE_TAG-macOS.zip"
+          gh release create "$RELEASE_TAG" "$archive" "$archive.sha256" \
+            --verify-tag --title "cosmNotes $RELEASE_TAG" --generate-notes --latest

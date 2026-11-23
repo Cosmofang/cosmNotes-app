@@ -1,8 +1,10 @@
-# 便签 StickyNotes 📝
+# cosmNotes
 
 **中文** | [English](README.en.md)
 
-一个轻量、好看的 macOS 桌面便签应用。原生 Swift + SwiftUI 编写，无任何第三方依赖，编译产物只有几百 KB。
+一个用原生 Swift 和 SwiftUI 编写的 macOS 桌面便签应用，无第三方依赖。
+
+cosmNotes 是「StickyNotes 大神的迭代版」，基于 simony3 开发的 StickyNotes v2.2.0。仓库和应用包均保留原版 MIT 许可及版权声明。[StickyNotes v2.2.0](https://github.com/simony3/StickyNotes/tree/v2.2.0)
 
 ## 截图
 
@@ -49,18 +51,49 @@
 
 ## 安装
 
-需要 macOS 14+ 和 Xcode Command Line Tools（`xcode-select --install`）。
+需要 macOS 14 或更新版本。下载 ZIP 并解压，将 `cosmNotes.app` 拖入「应用程序」。ZIP 包支持 Apple Silicon 和 Intel Mac，采用临时签名。[下载最新版](https://github.com/Cosmofang/cosmNotes-app/releases/latest)
+
+也可以安装 Xcode Command Line Tools（`xcode-select --install`）后在本机编译。
 
 ```bash
-git clone git@github.com:simony3/StickyNotes.git
-cd StickyNotes
+git clone https://github.com/Cosmofang/cosmNotes-app.git
+cd cosmNotes-app
 ./build.sh
-open /Applications/StickyNotes.app
 ```
 
-`build.sh` 会编译、打包成 `.app`、签名（ad-hoc）并安装到 `/Applications`。
+`build.sh` 会生成带临时签名的 `build/cosmNotes.app`。
+
+### 软件更新
+
+cosmNotes 启动时及运行期间每四小时检查 GitHub Releases。发现新版后，菜单栏会显示下载提示。也可以点「检查更新…」立即检查。点「下载更新」获取 ZIP。解压后退出旧版，再把新应用拖入「应用程序」完成更新。
 
 ## 使用
+
+展开工作时间轴后，点击右上角太阳和月亮开关的任意位置，即可在浅色和深色外观之间切换。便签、月历和表单会一起切换，重新打开应用时会恢复上次选择。macOS 26 起支持原生 Liquid Glass 控件。
+
+### 工作时间轴
+
+从菜单栏选择「工作时间轴」或「新增工作…」。每条工作需要标题和截止日期，概要选填。
+
+工作时间轴默认以普通窗口显示。点击标题栏的图钉开启或取消窗口置顶，应用会记住这个设置。也可以用标题栏按钮收起或展开时间轴。
+
+时间轴的月历用项目配色标记截止日，单独一天显示圆点，同一项目连续的截止日连成线。点月份标题右侧的箭头可收拢月历。可翻月查看，点日期筛选当天的工作，点「全部日期」清除筛选。新增或编辑工作时，点「截止日期」打开月历选日。
+
+按住月份标题旁的拖动把手，向下拖可把月历放到项目列表下方，向上拖可移回上方。应用会记住月历的位置。
+
+展开时可拖动窗口的边缘或角落调整大小。收起再展开或下次打开 App 时，时间轴会恢复上次调整的大小。
+
+时间轴顶部的项目色块按名称宽度排列，放不下就换行。点项目旁边的铅笔可改名和换色。把工作的标题拖到项目名上即可归类，拖到「未归类」可移出项目。点击项目名查看该项目的工作，也可在新增或编辑表单选择项目。
+
+点击「全部工作」可查看项目树。按住项目右侧的三横线上下拖动，周围条目会让开，虚线框标出放下的位置。顶部项目色块会同步调整，应用会记住顺序。点项目行展开或收起其中的工作，每个项目可以独立展开。项目都收起时，点列表底部的「添加项目」可创建项目。展开项目或单独查看项目时，从工作列表底部的「添加工作」打开表单，项目会自动选中。「未归类」列表底部的「新增工作」会预选「未归类」。
+
+点击工作标题可展开或收起下方的概要。已有备注会显示为概要。点击「添加概要」或工作的铅笔即可填写和修改。
+
+点工作右侧的图钉可将它移到最上方的「已置顶」组，再点一次恢复按日期分组。未手动排序的待办工作默认按截止日期从近到远排列，逾期工作排在其他未置顶工作前。截止当天仍在「今天」，过了当天才算逾期。已置顶的工作勾选后也会进入「已完成」，恢复为待完成时回到「已置顶」。
+
+按住工作右侧的三横线，可以在同一项目的同一分组内上下拖动。松手后会保存顺序，重启后仍可查看。
+
+### 桌面便签
 
 | 操作 | 方法 |
 |---|---|
@@ -90,12 +123,13 @@ open /Applications/StickyNotes.app
 
 ## AI 集成（MCP）
 
-项目内置一个零依赖的 [MCP](https://modelcontextprotocol.io/) 服务器（`mcp/stickynotes_mcp.py`，系统自带 Python 即可运行），把便签能力暴露给任何支持 MCP 的 AI 客户端（Codex、Claude Desktop、Claude Code 等）。配置好之后，直接对 AI 说"帮我把明天的学习计划贴成便签"，便签就会出现在屏幕上。
+应用附带一个使用 Python 3 标准库的 MCP 服务器。接入 Codex 后，可以说「用 cosmNotes 新增工作『整理周报』，截止 2026-11-20」。写盘后 Codex 会收到工作标题、截止日期和记录 ID。[MCP](https://modelcontextprotocol.io/)
 
 **提供的工具：**
 
 | 工具 | 说明 |
 |---|---|
+| `create_work` | 在工作时间轴新增工作。传入 `title` 和 `due_date`（`YYYY-MM-DD`），可用 `notes` 填写概要。 |
 | `create_note` | 创建便签（类型 / 颜色 / 窗口模式 / 折叠等全参数，可直接指定要涂荧光和加粗的词） |
 | `update_note` | 按 id 修改内容、颜色、窗口模式、预览和折叠状态，也能重设荧光/加粗标记 |
 | `delete_note` | 删除便签（非空内容自动进入历史） |
@@ -107,41 +141,52 @@ open /Applications/StickyNotes.app
 
 标记按「文字内容」指定而不是下标：`highlight: ["重点"]` 会把便签里每一处"重点"都涂上荧光，`bold` 同理；传 `[]` 表示清空。只用 `update_note` 改正文时，原有的荧光和加粗会按标过的字自动在新内容里找回来，不会因为 AI 改了一句话就全丢。
 
-日常修改都会以细粒度命令交给正在运行的 App，不直接重写 JSON，也不需要重启。批量迁移/灾难恢复用的 `admin_export_data` 和 `admin_overwrite_data` 默认隐藏；只有为 MCP 进程设置 `STICKYNOTES_ENABLE_ADMIN_TOOLS=1` 才会暴露，且覆盖数据必须携带版本号并显式确认。
+日常修改由 cosmNotes 接收并保存。批量迁移或恢复数据时，为 MCP 进程设置 `COSMNOTES_ENABLE_ADMIN_TOOLS=1` 可启用 `admin_export_data` 和 `admin_overwrite_data`。覆盖数据需要匹配当前数据版本并显式确认。
 
-**配置方法（Codex 桌面版）**——在 `~/.codex/config.toml` 中追加：
+在 Codex 桌面版使用时，将以下配置追加到 `~/.codex/config.toml`。
 
 ```toml
-[mcp_servers.stickynotes]
+[mcp_servers.cosmnotes]
 command = "python3"
-args = ["/你的路径/StickyNotes/mcp/stickynotes_mcp.py"]
+args = ["/Applications/cosmNotes.app/Contents/Resources/mcp/cosmnotes_mcp.py"]
 ```
 
-**配置方法（Claude Code）**：
+在 Claude Code 中注册 MCP 服务器。
 
 ```bash
-claude mcp add stickynotes -- python3 /你的路径/StickyNotes/mcp/stickynotes_mcp.py
+claude mcp add cosmnotes -- python3 /Applications/cosmNotes.app/Contents/Resources/mcp/cosmnotes_mcp.py
 ```
 
 重启客户端后 AI 即可看到上述工具。
 
 ## 数据存储
 
-便签内容保存在 `~/Library/Application Support/StickyNotes/notes.json`，纯 JSON 明文，方便备份和迁移。
+便签、历史、工作和项目保存在 `~/Library/Application Support/cosmNotes/` 下的 `notes.json`、`history.json`、`work-items.json` 和 `work-projects.json`，均为明文 JSON。
+
+隔离测试时，在启动应用前退出当前运行的 cosmNotes，并为应用和 MCP 进程指定相同的 `COSMNOTES_DATA_DIR`。从源码运行 MCP 脚本时，可用 `COSMNOTES_APP_PATH` 指定测试用的应用包。
 
 ## 项目结构
 
 ```
 Sources/StickyNotes/
 ├── main.swift          # 入口, NSApplication 启动, 隐藏编辑菜单(快捷键支持)
+├── AppIdentity.swift   # 应用标识、偏好设置和数据目录
 ├── AppDelegate.swift   # 菜单栏、便签窗口管理、类型选择、URL 接口
 ├── Note.swift          # 数据模型 + JSON 持久化 + 待办条目读写 + 历史归档
 ├── NoteView.swift      # SwiftUI 界面: 便签视图、待办清单、Markdown 渲染、折叠条
 ├── HistoryView.swift   # 历史便签窗口: 按日期分组、恢复、彻底删除
+├── WorkTimeline.swift  # 工作时间轴窗口和编辑表单
 └── NoteWindow.swift    # 无边框窗口、三种层级模式、折叠与边缘吸附
+Sources/CosmNotesWork/  # 工作数据、日期分组、保存和本地请求
 mcp/
-└── stickynotes_mcp.py  # MCP 服务器: AI 客户端控制便签的入口
+└── cosmnotes_mcp.py    # MCP 服务器: AI 客户端控制便签的入口
 ```
+
+## 共同迭代
+
+从公开仓库的 `main` 开分支提交 Pull Request。没有写权限时，可以先 Fork 再提交 Pull Request。GitHub Actions 会编译应用并检查工作保存、窗口几何和版本识别。[公开仓库](https://github.com/Cosmofang/cosmNotes-app)
+
+发布新版本时，更新 `Resources/Info.plist` 的版本号和构建号。给合入的提交推送对应的 `vMAJOR.MINOR.PATCH` 标签，GitHub Actions 就会生成通用 ZIP 和 SHA-256 校验文件并发布到 Releases。
 
 ## License
 
