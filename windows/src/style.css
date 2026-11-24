@@ -172,7 +172,6 @@ body.compact #content, body.compact #footer { display: none; }
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
   padding: 1px 8px 8px;
-  animation: fade .3s ease both;
 }
 .weekday { color: var(--muted); text-align: center; padding: 4px 0; font-size: 11px; }
 .day {
@@ -204,7 +203,7 @@ body.compact #content, body.compact #footer { display: none; }
 .mark.after { right: -1px; left: 50%; width: auto; border-radius: 5px 0 0 5px; }
 .mark.before.after { right: -1px; left: -1px; border-radius: 0; }
 .project-heading { display: flex; align-items: center; gap: 7px; }
-.project-body { padding: 2px 8px 5px; animation: fade .3s ease both; }
+.project-body { padding: 2px 8px 5px; }
 .group { margin: 0 0 8px; }
 .group h3 {
   font-size: 11px;
@@ -239,7 +238,6 @@ body.compact #content, body.compact #footer { display: none; }
   margin: 0 6px;
   padding: 8px 29px;
   user-select: text;
-  animation: fade .3s ease both;
 }
 .drop-preview {
   height: var(--drop-height, 42px);
@@ -315,6 +313,7 @@ textarea { min-height: 110px; resize: vertical; }
   transition: opacity .3s;
 }
 #toast.visible { opacity: 1; }
+.expanding { animation: fade .3s ease both; }
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }

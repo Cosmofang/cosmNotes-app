@@ -23,6 +23,7 @@ let compact = false;
 let drag;
 let placeholder;
 let toastTimer;
+let expandedSection;
 
 const byID = id => document.getElementById(id);
 const toolbar = byID('toolbar');
@@ -295,10 +296,10 @@ function calendarPanel() {
     icon('›', '下个月', () => flip(1)),
     icon(state.prefs.calendarBelow ? '↑' : '↓', '移动月历', () => send({ type: 'calendar-position' })),
     icon(state.prefs.calendar ? '⌃' : '⌄', state.prefs.calendar ? '收拢月历' : '展开月历',
-      () => send({ type: 'calendar' }))
+      () => send({ type: 'calendar' }, () => { if (state.prefs.calendar) expandedSection = 'calendar-grid'; }))
   ));
   if (!state.prefs.calendar) return panel;
-  const grid = element('div', 'calendar-grid');
+  const grid = expansion('calendar-grid', 'calendar-grid');
   for (const weekday of ['周一', '周二', '周三', '周四', '周五', '周六', '周日']) grid.append(element('span', 'weekday', weekday));
   const padding = (first.getDay() + 6) % 7;
   const last = new Date(year, monthIndex + 1, 0).getDate();
@@ -334,7 +335,7 @@ function workRow(item, kind, today) {
   const card = element('article', completed ? 'work-row done' : 'work-row');
   const label = button(item.title, () => {
     if (open) detailOpen.delete(item.id);
-    else detailOpen.add(item.id);
+    else { detailOpen.add(item.id); expandedSection = 'work-' + item.id; }
     redrawContent();
   }, { kind: 'work-label' });
   label.setAttribute('aria-expanded', String(open));
@@ -351,7 +352,11 @@ function workRow(item, kind, today) {
       () => send({ type: 'work-complete', id: item.id })),
     label, date, actions
   ));
-  if (open) card.append(element('div', 'work-detail', item.notes || button('添加概要', () => openWork(item))));
+  if (open) {
+    const detail = expansion('work-detail', 'work-' + item.id);
+    detail.append(item.notes || button('添加概要', () => openWork(item)));
+    card.append(detail);
+  }
   dropTarget(card, source => {
     const other = state.work.find(work => work.id === source.id);
     return source.kind === 'work' && other && source.id !== item.id
@@ -366,7 +371,7 @@ function projectPanel(project, expanded, showHeader) {
   if (showHeader) {
     const heading = button(project.name, () => {
       if (expanded) projectOpen.delete(id);
-      else projectOpen.add(id);
+      else { projectOpen.add(id); expandedSection = 'project-' + id; }
       redrawContent();
     }, { kind: 'project-heading' });
     heading.setAttribute('aria-expanded', String(expanded));
@@ -386,7 +391,7 @@ function projectPanel(project, expanded, showHeader) {
   const today = dayKey();
   const items = state.work.filter(item => projectId(item) === id && (!selectedDay || item.dueDate === selectedDay));
   if (expanded) {
-    const body = element('div', 'project-body');
+    const body = expansion('project-body', 'project-' + id);
     for (const kind of sections) {
       const list = orderedWork(items.filter(item => sectionFor(item, today) === kind), kind);
       if (list.length === 0) continue;
@@ -491,6 +496,12 @@ function notesScreen() {
   if (archive && !cards.length) nodes.push(element('p', 'empty', '暂无历史便签'));
   if (!archive) nodes.push(button('＋ 新增便签', () => openNote(), { kind: 'add' }));
   return nodes;
+}
+
+function expansion(className, key) {
+  if (expandedSection !== key) return element('div', className);
+  expandedSection = undefined;
+  return element('div', className + ' expanding');
 }
 
 function redrawContent() {
