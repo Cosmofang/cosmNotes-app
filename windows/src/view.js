@@ -538,15 +538,23 @@ function renderToolbar() {
 
 function renderFooter() {
   const current = release?.status;
-  const messages = { checking: '正在检查更新…', current: '已是最新版本', failed: '暂时无法检查更新' };
+  const messages = {
+    checking: '正在检查更新…', current: '已是最新版本', failed: '暂时无法完成更新',
+    preparing: '正在准备更新' + (release?.percent == null ? '…' : ' ' + release.percent + '%'),
+    ready: 'cosmNotes ' + release?.version + ' 更新已就绪', installing: '正在重启并更新…'
+  };
   const version = element('span', '', messages[current] || ('cosmNotes v' + (release?.installed || '')));
-  const actions = element('div', 'row-actions', button('检查更新…', async () => {
-    try { await api.checkUpdate(); } catch (error) { toast(error.message); }
-  }));
-  if (release?.version) {
-    actions.append(button('下载更新 ' + release.version, async () => {
-      try { await api.download(); } catch (error) { toast(error.message); }
+  const actions = element('div', 'row-actions');
+  if (current === 'ready') {
+    actions.append(button('重启并更新', async () => {
+      try { await api.installUpdate(); } catch (error) { toast(error.message); }
     }, { kind: 'primary' }));
+  } else if (current !== 'installing' && current !== 'preparing') {
+    const check = button('检查更新…', async () => {
+      try { await api.checkUpdate(); } catch (error) { toast(error.message); }
+    });
+    check.disabled = current === 'checking';
+    actions.append(check);
   }
   footer.replaceChildren(version, actions);
 }
@@ -567,12 +575,12 @@ api.onState(next => { state = next; render(); });
 api.onUpdate(next => {
   release = next;
   renderFooter();
-  if (next.notify && !noteID) toast('cosmNotes ' + next.version + ' 可下载');
+  if (next.notify && !noteID) toast('cosmNotes ' + next.version + ' 更新已就绪');
 });
 api.onNavigate(section => { compact = false; screen = section; render(); });
 api.read().then(data => {
   state = data;
   release ||= data.update;
   render();
-  if (release.notify && !noteID) toast('cosmNotes ' + release.version + ' 可下载');
+  if (release.notify && !noteID) toast('cosmNotes ' + release.version + ' 更新已就绪');
 }).catch(error => toast(error.message));

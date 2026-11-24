@@ -66,7 +66,7 @@ args = ['-3', 'C:\Users\YourName\AppData\Local\Programs\cosmNotes\resources\mcp\
 
 ## 更新与保存
 
-cosmNotes 在启动时及运行期间每四小时检查一次 GitHub Releases。也可以从 Mac 菜单栏、Windows 窗口底部或系统托盘手动点「检查更新…」。点「下载更新」后，先退出旧版。Mac 解压并替换应用，Windows 运行新版安装程序。
+从 v0.7.0 起，cosmNotes 会在后台检查、准备并校验更新。新版准备好后，在应用中点「重启并更新」即可完成安装。也可以从 Mac 菜单栏、Windows 窗口底部或系统托盘点「检查更新…」。v0.6.0 及更早版本需要先安装一次 v0.7.0 或更新版本，才能使用应用内更新。
 
 工作、项目和便签保存在当前设备。macOS 的数据目录为 `~/Library/Application Support/cosmNotes/`，Windows 为 `%LOCALAPPDATA%\cosmNotes`。
 
@@ -77,7 +77,7 @@ cosmNotes 在启动时及运行期间每四小时检查一次 GitHub Releases。
 - **macOS** 安装 Xcode Command Line Tools 后，在仓库根目录运行 `./build.sh`。构建产物是 `build/cosmNotes.app`。
 - **Windows** 安装 Node.js 22.12 或更新版本，在仓库根目录运行 `npm --prefix windows ci` 和 `npm --prefix windows start`。在 Windows 上运行 `npm --prefix windows run dist` 生成安装程序。
 
-发行时同步更新 `Resources/Info.plist`、`windows/package.json` 和 Windows 锁文件，再为合入的提交推送对应的 `vMAJOR.MINOR.PATCH` 标签。GitHub Actions 会测试并发布 Mac 通用 ZIP、Intel 独立 ZIP、Windows 安装程序及校验文件。
+发行时同步更新 `Resources/Info.plist`、`windows/package.json` 和 Windows 锁文件，再为合入的提交推送对应的 `vMAJOR.MINOR.PATCH` 标签。GitHub Actions 会测试并发布 Mac 通用 ZIP、Intel 独立 ZIP、Windows 安装程序、校验文件以及签名的更新列表。
 
 ## 致谢与许可
 

@@ -1,11 +1,13 @@
 'use strict';
 
+const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { fileURLToPath } = require('node:url');
-const { app, BrowserWindow, ipcMain, Menu, net, screen, shell, Tray } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, screen, Tray } = require('electron');
+const { NsisUpdater } = require('electron-updater');
 const { Store } = require('./store.cjs');
-const { latestURL, windowsUpdate } = require('./updates.cjs');
+const { verifyManifest, sha512File } = require('./updates.cjs');
 
 const localPath = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
 const dataPath = path.resolve(process.env.COSMNOTES_DATA_DIR
@@ -25,7 +27,9 @@ let saveBoundsTimer;
 let priorHeight;
 let refreshUpdate;
 let manualCheckRequested = false;
-let availableUpdate;
+let updater;
+let preparedUpdate;
+let installing = false;
 let updateState = { status: 'idle' };
 
 function publish(channel, value, except) {
@@ -44,34 +48,63 @@ function publishState(except) {
   publish('cosm:state', store.snapshot(), except);
 }
 
-function setUpdateState(status, notify = false) {
-  updateState = { status, version: availableUpdate?.version, notify, installed: app.getVersion() };
+function setUpdateState(status, details = {}) {
+  updateState = { status, installed: app.getVersion(), ...details };
   publish('cosm:version', updateState);
   configureTray();
 }
 
+function configureUpdater() {
+  if (!app.isPackaged || process.platform !== 'win32') return;
+  updater = new NsisUpdater();
+  updater.autoDownload = false;
+  updater.autoInstallOnAppQuit = false;
+  updater.disableDifferentialDownload = true;
+  updater.disableWebInstaller = true;
+  updater.allowPrerelease = false;
+  updater.on('download-progress', progress => {
+    if (updateState.status === 'preparing') {
+      setUpdateState('preparing', { version: updateState.version, percent: Math.floor(progress.percent) });
+    }
+  });
+  updater.on('error', error => {
+    console.warn('App update:', error.message);
+    if (installing) {
+      installing = false;
+      setUpdateState('failed');
+    }
+  });
+}
+
 async function checkUpdate(manual = false) {
-  if (manual) {
-    manualCheckRequested = true;
-    setUpdateState('checking');
-  }
+  if (!updater || preparedUpdate || installing) return;
+  manualCheckRequested ||= manual;
   if (refreshUpdate) return refreshUpdate;
+  if (manual) setUpdateState('checking');
+
   refreshUpdate = (async () => {
     try {
-      const response = await net.fetch(latestURL, {
-        headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'cosmNotes/' + app.getVersion() },
-        signal: AbortSignal.timeout(12000)
-      });
-      if (!response.ok) throw new Error('GitHub HTTP ' + response.status);
-      availableUpdate = windowsUpdate(await response.json(), app.getVersion());
-      const notify = availableUpdate && store.prefs.updateSeen !== availableUpdate.version;
+      const result = await updater.checkForUpdates();
+      if (!result) return;
+      const key = fs.readFileSync(path.join(process.resourcesPath, 'UpdatePublicKey'), 'utf8').trim();
+      const manifest = verifyManifest(result.updateInfo, key);
+      if (!result.isUpdateAvailable) {
+        setUpdateState(manualCheckRequested ? 'current' : 'idle');
+        return;
+      }
+      const version = 'v' + manifest.version;
+      setUpdateState('preparing', { version });
+      const [file] = await updater.downloadUpdate(result.cancellationToken);
+      if (!file || await sha512File(file) !== manifest.sha512) throw new Error('更新包校验失败。');
+      preparedUpdate = { file, version, sha512: manifest.sha512 };
+      const notify = store.prefs.updateSeen !== version;
       if (notify) {
-        try { store.updatePrefs({ updateSeen: availableUpdate.version }); }
+        try { store.updatePrefs({ updateSeen: version }); }
         catch (error) { console.warn(error.message); }
       }
-      setUpdateState(availableUpdate ? 'available' : manualCheckRequested ? 'current' : 'idle', Boolean(notify));
+      setUpdateState('ready', { version, notify });
     } catch (error) {
-      if (manualCheckRequested) setUpdateState('failed');
+      if (manualCheckRequested || updateState.status === 'preparing') setUpdateState('failed');
       console.warn('Update check:', error.message);
     }
   })();
@@ -82,8 +115,23 @@ async function checkUpdate(manual = false) {
   }
 }
 
-function downloadUpdate() {
-  if (availableUpdate) return shell.openExternal(availableUpdate.url);
+async function installUpdate() {
+  if (!preparedUpdate || installing) return;
+  const { file, version, sha512 } = preparedUpdate;
+  installing = true;
+  setUpdateState('installing', { version });
+  try {
+    if (await sha512File(file) !== sha512) {
+      preparedUpdate = undefined;
+      throw new Error('更新包校验失败，请重新检查更新。');
+    }
+    updater.quitAndInstall(true, true);
+  } catch (error) {
+    installing = false;
+    preparedUpdate = undefined;
+    setUpdateState('failed');
+    throw error;
+  }
 }
 
 function securedWindow(options = {}) {
@@ -187,13 +235,15 @@ function showNote(id) {
 
 function configureTray() {
   if (!tray) return;
-  tray.setToolTip(availableUpdate ? 'cosmNotes · ' + availableUpdate.version + ' 可下载' : 'cosmNotes');
+  tray.setToolTip(updateState.status === 'ready' ? 'cosmNotes · ' + updateState.version + ' 更新已就绪' : 'cosmNotes');
   const menu = [
     { label: '工作时间轴', click: () => showTimeline('work') },
     { label: '桌面便签', click: () => showTimeline('notes') },
     { label: '检查更新…', click: () => { showTimeline(); checkUpdate(true); } }
   ];
-  if (availableUpdate) menu.push({ label: '下载更新 ' + availableUpdate.version, click: downloadUpdate });
+  if (updateState.status === 'ready') {
+    menu.push({ label: '重启并更新', click: () => installUpdate().catch(error => console.warn(error.message)) });
+  }
   menu.push({ type: 'separator' }, { label: '退出 cosmNotes', click: () => app.quit() });
   tray.setContextMenu(Menu.buildFromTemplate(menu));
 }
@@ -226,7 +276,7 @@ function registerIPC() {
   });
   trusted('cosm:note', (_event, id) => showNote(id));
   trusted('cosm:update', () => checkUpdate(true));
-  trusted('cosm:download', () => downloadUpdate());
+  trusted('cosm:install-update', () => installUpdate());
 }
 
 if (!app.requestSingleInstanceLock()) {
@@ -249,6 +299,7 @@ if (!app.requestSingleInstanceLock()) {
     tray.on('double-click', () => showTimeline());
     configureTray();
     registerIPC();
+    configureUpdater();
     if (!process.argv.includes('--background-work')) showTimeline();
     const consumeWork = () => {
       try { if (store.drainInbox()) publishState(); }

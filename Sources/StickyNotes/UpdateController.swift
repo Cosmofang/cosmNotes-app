@@ -1,120 +1,79 @@
 import AppKit
-import CosmNotesUpdates
+import Sparkle
 
 @MainActor
-final class UpdateController: NSObject {
-    private static let reminderKey = "Updates.lastRemindedVersion"
-    private static let interval: TimeInterval = 4 * 60 * 60
-
-    private let installedVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+final class UpdateController: NSObject, SPUUpdaterDelegate {
+    private static let reminderKey = "Updates.lastPreparedVersion"
+    private lazy var controller = SPUStandardUpdaterController(
+        startingUpdater: false, updaterDelegate: self, userDriverDelegate: nil
+    )
     private let checkItem = NSMenuItem(title: "检查更新…", action: #selector(checkManually), keyEquivalent: "")
-    private let downloadItem = NSMenuItem(title: "", action: #selector(downloadUpdate), keyEquivalent: "")
+    private let installItem = NSMenuItem(title: "重启并更新…", action: #selector(installManually), keyEquivalent: "")
     private weak var statusButton: NSStatusBarButton?
-    private var timer: Timer?
-    private var available: ReleaseUpdate?
-    private var checking = false
-    private var manualResultRequested = false
+    private var pendingInstallation: (() -> Void)?
+    private var pendingVersion: String?
+    private var showingReminder = false
 
     func addMenuItems(to menu: NSMenu, statusButton: NSStatusBarButton?) {
         self.statusButton = statusButton
         checkItem.target = self
-        downloadItem.target = self
-        downloadItem.isHidden = true
+        installItem.target = self
+        installItem.isHidden = true
         menu.addItem(checkItem)
-        menu.addItem(downloadItem)
+        menu.addItem(installItem)
     }
 
     func start() {
-        guard timer == nil, !installedVersion.isEmpty else { return }
-        check()
-        let timer = Timer(timeInterval: Self.interval, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.check() }
-        }
-        self.timer = timer
-        RunLoop.main.add(timer, forMode: .common)
+        controller.startUpdater()
     }
 
     func remindIfActive() {
-        guard let update = available, NSApp.isActive, NSApp.modalWindow == nil,
+        guard let version = pendingVersion, NSApp.isActive, NSApp.modalWindow == nil,
               !NSApp.windows.contains(where: { $0.attachedSheet != nil }),
-              AppIdentity.preferences.string(forKey: Self.reminderKey) != update.version else { return }
-        showUpdate(update)
+              AppIdentity.preferences.string(forKey: Self.reminderKey) != version else { return }
+        showReadyToInstall(version: version)
     }
 
     @objc private func checkManually() {
-        manualResultRequested = true
-        check()
-    }
-
-    @objc private func downloadUpdate() {
-        if let available { NSWorkspace.shared.open(available.downloadURL) }
-    }
-
-    private func check() {
-        guard !checking else { return }
-        checking = true
-        checkItem.title = "正在检查更新…"
-        Task {
-            let result: Result<ReleaseUpdate?, Error>
-            do {
-                result = .success(try await GitHubRelease.check(repository: AppIdentity.releaseRepository,
-                                                               installedVersion: installedVersion))
-            } catch {
-                result = .failure(error)
-            }
-            receive(result)
+        if let version = pendingVersion {
+            showReadyToInstall(version: version)
+        } else {
+            controller.checkForUpdates(nil)
         }
     }
 
-    private func receive(_ result: Result<ReleaseUpdate?, Error>) {
-        let manual = manualResultRequested
-        manualResultRequested = false
-        checking = false
-        checkItem.title = "检查更新…"
-
-        switch result {
-        case .success(let update):
-            available = update
-            downloadItem.isHidden = update == nil
-            downloadItem.title = update.map { "下载更新 v\($0.version)…" } ?? ""
-            statusButton?.image = NSImage(
-                systemSymbolName: update == nil ? "note.text" : "arrow.down.circle",
-                accessibilityDescription: update == nil ? AppIdentity.name : "cosmNotes 有更新"
-            )
-            statusButton?.toolTip = update.map { "cosmNotes v\($0.version) 可下载" }
-            if manual {
-                if let update {
-                    showUpdate(update)
-                } else {
-                    showMessage("已是最新版本", detail: "当前版本 v\(installedVersion)。")
-                }
-            } else {
-                remindIfActive()
-            }
-        case .failure(let error):
-            if manual { showMessage("暂时无法检查更新", detail: error.localizedDescription) }
-        }
+    @objc private func installManually() {
+        if let version = pendingVersion { showReadyToInstall(version: version) }
     }
 
-    private func showUpdate(_ update: ReleaseUpdate) {
-        AppIdentity.preferences.set(update.version, forKey: Self.reminderKey)
+    func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem,
+                 immediateInstallationBlock install: @escaping () -> Void) -> Bool {
+        pendingVersion = item.displayVersionString
+        pendingInstallation = install
+        installItem.isHidden = false
+        statusButton?.image = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: "cosmNotes 更新已就绪")
+        statusButton?.toolTip = "cosmNotes \(item.displayVersionString) 更新已就绪"
+        Task { @MainActor [weak self] in self?.remindIfActive() }
+        return true
+    }
+
+    private func showReadyToInstall(version: String) {
+        guard !showingReminder, let install = pendingInstallation else { return }
+        showingReminder = true
+        defer { showingReminder = false }
+        AppIdentity.preferences.set(version, forKey: Self.reminderKey)
+
         let alert = NSAlert()
-        alert.messageText = "cosmNotes v\(update.version) 可下载"
-        alert.informativeText = "当前版本 v\(installedVersion)。下载并解压后，退出 cosmNotes，再将新应用拖入「应用程序」替换旧版。"
-        alert.addButton(withTitle: "下载更新")
+        alert.messageText = "cosmNotes \(version) 更新已就绪"
+        alert.informativeText = "重启应用以完成更新。已经保存的工作和便签会在新版中打开。"
+        alert.addButton(withTitle: "重启并更新")
         alert.addButton(withTitle: "稍后")
         NSApp.activate()
         if alert.runModal() == .alertFirstButtonReturn {
-            NSWorkspace.shared.open(update.downloadURL)
+            pendingInstallation = nil
+            pendingVersion = nil
+            installItem.isHidden = true
+            install()
         }
-    }
-
-    private func showMessage(_ title: String, detail: String) {
-        let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = detail
-        alert.addButton(withTitle: "好")
-        NSApp.activate()
-        alert.runModal()
     }
 }

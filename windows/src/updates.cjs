@@ -1,30 +1,47 @@
 'use strict';
 
-const repository = 'Cosmofang/cosmNotes-app';
-const latestURL = 'https://api.github.com/repos/' + repository + '/releases/latest';
+const { createHash, createPublicKey, verify } = require('node:crypto');
+const { createReadStream } = require('node:fs');
+const publicKeyPrefix = Buffer.from('302a300506032b6570032100', 'hex');
 
-function version(value) {
-  if (typeof value !== 'string' || !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(value)) return null;
-  const components = value.split('.').map(Number);
-  return components.every(Number.isSafeInteger) ? components : null;
+function installerName(version) {
+  if (typeof version !== 'string' || !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) {
+    throw new Error('无法识别更新版本。');
+  }
+  return 'cosmNotes-v' + version + '-Windows-x64-Setup.exe';
 }
 
-function windowsUpdate(release, installed) {
-  if (release.draft || release.prerelease) return null;
-  const tag = release.tag_name;
-  const remote = typeof tag === 'string' && tag.startsWith('v') ? version(tag.slice(1)) : null;
-  const current = version(installed);
-  if (!remote || !current) throw new Error('无法识别版本号。');
-
-  const difference = remote.map((part, index) => part - current[index]).find(part => part !== 0) || 0;
-  if (difference <= 0) return null;
-
-  const name = 'cosmNotes-' + tag + '-Windows-x64-Setup.exe';
-  if (!release.assets?.some(asset => asset.name === name && asset.state === 'uploaded')) return null;
-  return {
-    version: tag,
-    url: 'https://github.com/' + repository + '/releases/download/' + tag + '/' + name
-  };
+function manifestBytes({ version, path, sha512, size }) {
+  return Buffer.from(JSON.stringify(['cosmNotes-Windows-x64-v1', version, path, sha512, size]));
 }
 
-module.exports = { latestURL, windowsUpdate };
+function base64OfLength(value, length) {
+  if (typeof value !== 'string') return null;
+  const decoded = Buffer.from(value, 'base64');
+  return decoded.length === length && decoded.toString('base64') === value ? decoded : null;
+}
+
+function verifyManifest(info, rawPublicKey) {
+  const name = installerName(info?.version);
+  const file = info.files?.[0];
+  const signature = base64OfLength(info.signature, 64);
+  const publicKey = base64OfLength(rawPublicKey, 32);
+  if (!publicKey || !signature || !Array.isArray(info.files) || info.files.length !== 1
+      || file?.url !== name || info.path !== name || file.sha512 !== info.sha512
+      || !base64OfLength(file.sha512, 64) || !Number.isSafeInteger(file.size) || file.size <= 0
+      || info.packages != null) {
+    throw new Error('Windows 更新信息无效。');
+  }
+  const manifest = { version: info.version, path: name, sha512: file.sha512, size: file.size };
+  const key = createPublicKey({ format: 'der', type: 'spki', key: Buffer.concat([publicKeyPrefix, publicKey]) });
+  if (!verify(null, manifestBytes(manifest), key, signature)) throw new Error('Windows 更新签名校验失败。');
+  return manifest;
+}
+
+async function sha512File(file) {
+  const hash = createHash('sha512');
+  for await (const chunk of createReadStream(file)) hash.update(chunk);
+  return hash.digest('base64');
+}
+
+module.exports = { installerName, manifestBytes, verifyManifest, sha512File };

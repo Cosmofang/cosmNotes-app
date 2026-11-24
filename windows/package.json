@@ -1,6 +1,6 @@
 {
   "name": "cosmnotes",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "private": true,
   "description": "cosmNotes desktop notes and work timeline",
   "author": "Cosmofang",
@@ -32,6 +32,10 @@
       {
         "from": "../mcp/cosmnotes_mcp.py",
         "to": "mcp/cosmnotes_mcp.py"
+      },
+      {
+        "from": "../Resources/UpdatePublicKey",
+        "to": "UpdatePublicKey"
       }
     ],
     "win": {
@@ -45,11 +49,18 @@
       "perMachine": false,
       "runAfterFinish": false,
       "deleteAppDataOnUninstall": false
+    },
+    "publish": {
+      "provider": "generic",
+      "url": "https://github.com/Cosmofang/cosmNotes-app/releases/latest/download/"
     }
   },
   "devDependencies": {
     "electron": "45.4.1",
     "electron-builder": "26.18.0",
     "playwright-core": "1.65.1"
+  },
+  "dependencies": {
+    "electron-updater": "6.8.11"
   }
 }

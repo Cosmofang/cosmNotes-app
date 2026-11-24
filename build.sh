@@ -14,6 +14,15 @@ bundle_app() {
     mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources/mcp"
     cp "$executable" "$bundle/Contents/MacOS/cosmNotes"
     cp Resources/Info.plist "$bundle/Contents/Info.plist"
+    local sparkle_framework
+    sparkle_framework="$(find .build/artifacts -type d -path '*/macos-arm64_x86_64/Sparkle.framework' -print -quit)"
+    if [ -z "$sparkle_framework" ]; then
+        echo "Sparkle framework missing from the resolved Swift package artifacts."
+        return 1
+    fi
+    mkdir -p "$bundle/Contents/Frameworks"
+    ditto "$sparkle_framework" "$bundle/Contents/Frameworks/Sparkle.framework"
+    cp "$sparkle_framework/../../../LICENSE" "$bundle/Contents/Resources/Sparkle-LICENSE.txt"
     cp Resources/AppIcon.icns LICENSE "$bundle/Contents/Resources/"
     cp mcp/cosmnotes_mcp.py "$bundle/Contents/Resources/mcp/"
     codesign --force --deep -s - "$bundle"
