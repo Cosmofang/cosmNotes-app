@@ -2,11 +2,11 @@
 
 [中文](README.md) | **English**
 
-A lightweight macOS sticky notes app built with Swift and SwiftUI, with zero third-party dependencies.
+Floating desktop notes and a work timeline for macOS and Windows.
 
 cosmNotes is an independent iteration of StickyNotes v2.2.0 by simony3, credited in the app as “StickyNotes 大神的迭代版”. The repository and app bundle include the original MIT license and copyright notice. [StickyNotes v2.2.0](https://github.com/simony3/StickyNotes/tree/v2.2.0)
 
-## Screenshots
+## macOS screenshots
 
 <table>
   <tr>
@@ -28,7 +28,7 @@ drag it near the left/right screen edge to snap flush, with the edge-side corner
 <img src="docs/screenshots/capsule-text-snapped.png" width="112" alt="Text note capsule snapped to left edge"><br>
 <img src="docs/screenshots/capsule-free.png" width="135" alt="Free-floating capsule with rounded ends">
 
-## Features
+## macOS features
 
 - **Two note types**
   - 📝 **Text notes**: Markdown support (headings, lists, todo syntax, quotes, bold/italic/inline code, dividers), one-click toggle between edit and preview
@@ -51,7 +51,13 @@ drag it near the left/right screen edge to snap flush, with the edge-side corner
 
 ## Install
 
-Requires macOS 14 or later. Download and unzip the archive, then drag `cosmNotes.app` to Applications. The archive supports Apple Silicon and Intel Macs and uses an ad-hoc signature. [Download the latest version](https://github.com/Cosmofang/cosmNotes-app/releases/latest)
+| System | Download |
+| --- | --- |
+| macOS 14+, Intel | Archive ending in -macOS-Intel.zip |
+| macOS 14+, Apple Silicon or Intel | Archive ending in -macOS.zip |
+| Windows 10 / 11, 64-bit (x64) | Installer ending in -Windows-x64-Setup.exe |
+
+On Mac, extract the ZIP and drag cosmNotes.app into Applications. On Windows, run the installer and open cosmNotes from the Start menu. The Mac packages are ad-hoc signed. The Windows installer is unsigned. [Download the latest version](https://github.com/Cosmofang/cosmNotes-app/releases/latest)
 
 You can also build from source after installing Xcode Command Line Tools with `xcode-select --install`.
 
@@ -65,9 +71,15 @@ cd cosmNotes-app
 
 ### Updates
 
-cosmNotes checks GitHub Releases at launch and every four hours while it runs. The menu bar shows when a new version is available. Use Check for Updates to check immediately. Choose Download Update to get the ZIP. Unzip it, quit the current app, and drag the new app into Applications to update.
+cosmNotes checks GitHub Releases at launch and every four hours. On a Mac, choose Check for Updates from the menu bar or select Download Update when a new version is available. Quit the current app, unzip the new one, and drag it into Applications.
 
-## Usage
+### Windows edition
+
+Use the Work tab for projects, the monthly calendar, deadlines, pinned tasks, and summaries. Drag projects and work items to reorder them. The window can float on top, collapse, and resize. The Notes tab opens individual floating notes, including checklists and archived notes. Use the update controls at the bottom of the window or in the system tray. To update, quit cosmNotes through the tray and run the downloaded installer.
+
+Use Node.js 22.12 or later with `npm --prefix windows ci` and `npm --prefix windows start`. On Windows, `npm --prefix windows run dist` builds the x64 installer.
+
+## macOS usage
 
 Expand the Work Timeline and click anywhere on the sun and moon switch in the upper right to toggle between light and dark appearances. Notes, the calendar, and forms switch together, and the app remembers your choice after relaunch. Native Liquid Glass controls are available on macOS 26 and later.
 
@@ -165,6 +177,8 @@ Active notes, history, work, and projects are stored as plain JSON in `notes.jso
 
 For isolated tests, quit the running copy of cosmNotes and set the same `COSMNOTES_DATA_DIR` for the app and MCP process before launching. When running the MCP script from source, set `COSMNOTES_APP_PATH` to point to a test app bundle.
 
+On Windows, app data is stored in %LOCALAPPDATA%\cosmNotes. The Windows MCP server exposes create_work. Use Python 3 with resources\mcp\cosmnotes_mcp.py from the installed app, as shown in the [Chinese setup instructions](README.md#ai-集成mcp).
+
 ## Project Structure
 
 ```
@@ -186,7 +200,7 @@ mcp/
 
 Create a branch from `main` and submit a pull request. If you need write access for your branch, fork the repository and submit from the fork. GitHub Actions builds the app and checks work storage, window geometry, and update detection. [Public repository](https://github.com/Cosmofang/cosmNotes-app)
 
-To publish a release, update the version and build number in `Resources/Info.plist`. Push the matching `vMAJOR.MINOR.PATCH` tag for the merged commit. GitHub Actions publishes the universal ZIP and its SHA-256 checksum to Releases.
+Keep the app version in Resources/Info.plist and windows/package.json in sync. Update the Windows lockfile and macOS build number, then push the matching vMAJOR.MINOR.PATCH tag for the merged commit. GitHub Actions verifies and publishes the universal Mac ZIP, Intel Mac ZIP, and Windows x64 installer with SHA-256 checksums.
 
 ## License
 

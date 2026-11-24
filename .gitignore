@@ -7,3 +7,6 @@ __pycache__/
 Resources/AppIcon.iconset/
 Resources/icon_1024.png
 *.zip
+
+/windows/node_modules/
+/windows/dist/
