@@ -15,6 +15,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: desktop-${{ github.event_name }}-${{ inputs.release_tag || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   RELEASE_TAG: ${{ inputs.release_tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
 
@@ -100,6 +104,11 @@ jobs:
           $env:COSMNOTES_TEST_EXE = $installed
           $env:COSMNOTES_SMOKE_SCREENSHOT = Join-Path $env:RUNNER_TEMP 'cosmNotes-Windows.png'
           npm run smoke
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: windows-ui-check
+          path: ${{ runner.temp }}/cosmNotes-Windows.png
+          if-no-files-found: error
       - name: Generate the installer checksum
         run: |
           $setup = Get-ChildItem dist -Filter '*-Windows-x64-Setup.exe' | Select-Object -First 1

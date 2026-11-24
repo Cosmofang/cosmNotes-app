@@ -1,5 +1,5 @@
 {
-  "name": "cosmnotes-windows",
+  "name": "cosmnotes",
   "version": "0.6.0",
   "private": true,
   "description": "cosmNotes desktop notes and work timeline",
@@ -25,12 +25,20 @@
       "package.json"
     ],
     "extraResources": [
-      { "from": "../LICENSE", "to": "LICENSE" },
-      { "from": "../mcp/cosmnotes_mcp.py", "to": "mcp/cosmnotes_mcp.py" }
+      {
+        "from": "../LICENSE",
+        "to": "LICENSE"
+      },
+      {
+        "from": "../mcp/cosmnotes_mcp.py",
+        "to": "mcp/cosmnotes_mcp.py"
+      }
     ],
     "win": {
       "icon": "resources/icon.ico",
-      "target": ["nsis"]
+      "target": [
+        "nsis"
+      ]
     },
     "nsis": {
       "oneClick": true,
