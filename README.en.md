@@ -66,7 +66,7 @@ args = ['-3', 'C:\Users\YourName\AppData\Local\Programs\cosmNotes\resources\mcp\
 
 ## Updates and storage
 
-cosmNotes checks GitHub Releases when it starts and every four hours while it runs. Use **检查更新…** (Check for Updates) in the Mac menu bar, the Windows footer, or the Windows tray menu to check manually. After downloading an update, quit the previous version and replace the Mac app or run the Windows installer.
+Starting with v0.7.0, cosmNotes checks, prepares, and verifies updates in the background. When the update is ready, choose Restart and Update inside cosmNotes. The Check for Updates command is in the Mac menu bar, the Windows footer, or the Windows tray. Users of v0.6.0 or earlier need to install v0.7.0 or later once to receive in-app updates.
 
 Projects, tasks, and notes are kept on the current device in `~/Library/Application Support/cosmNotes/` on macOS and `%LOCALAPPDATA%\cosmNotes` on Windows.
 
@@ -77,7 +77,7 @@ Create a branch from `main` or fork the repository, then open a pull request. [R
 - **macOS** Install Xcode Command Line Tools and run `./build.sh` in the repository root. The build produces `build/cosmNotes.app`.
 - **Windows** Install Node.js 22.12 or later, then run `npm --prefix windows ci` and `npm --prefix windows start` from the repository root. Run `npm --prefix windows run dist` on Windows to build the installer.
 
-For a release, update `Resources/Info.plist`, `windows/package.json`, and the Windows lockfile, then push the matching `vMAJOR.MINOR.PATCH` tag for the merged commit. GitHub Actions tests and publishes the universal Mac ZIP, Intel Mac ZIP, and Windows installer with checksums.
+For a release, update `Resources/Info.plist`, `windows/package.json`, and the Windows lockfile, then push the matching `vMAJOR.MINOR.PATCH` tag for the merged commit. GitHub Actions tests and publishes the universal Mac ZIP, Intel Mac ZIP, and Windows installer with checksums and signed update feeds.
 
 ## Credits and license
 

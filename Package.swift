@@ -10,11 +10,16 @@ let package = Package(
             path: "Sources/StickyNotesGeometry"
         ),
         .target(name: "CosmNotesWork"),
-        .target(name: "CosmNotesUpdates"),
+        .binaryTarget(
+            name: "Sparkle",
+            url: "https://github.com/sparkle-project/Sparkle/releases/download/2.10.1/Sparkle-for-Swift-Package-Manager.zip",
+            checksum: "4c2e48a3e50ebcc2c88a58a4c7264a1a99c3c31857ce754357afb9cdb323022a"
+        ),
         .executableTarget(
             name: "cosmNotes",
-            dependencies: ["StickyNotesGeometry", "CosmNotesWork", "CosmNotesUpdates"],
-            path: "Sources/StickyNotes"
+            dependencies: ["StickyNotesGeometry", "CosmNotesWork", "Sparkle"],
+            path: "Sources/StickyNotes",
+            linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])]
         ),
         .executableTarget(
             name: "StickyNotesGeometryChecks",
@@ -25,11 +30,6 @@ let package = Package(
             name: "CosmNotesWorkChecks",
             dependencies: ["CosmNotesWork"],
             path: "Tests/CosmNotesWorkChecks"
-        ),
-        .executableTarget(
-            name: "CosmNotesUpdateChecks",
-            dependencies: ["CosmNotesUpdates"],
-            path: "Tests/CosmNotesUpdateChecks"
         )
     ]
 )

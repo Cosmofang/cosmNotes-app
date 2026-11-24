@@ -16,7 +16,6 @@ const options = {
   timeout: 30_000
 };
 
-const expectedURL = 'https://github.com/Cosmofang/cosmNotes-app/releases/download/v99.0.0/cosmNotes-v99.0.0-Windows-x64-Setup.exe';
 const visible = locator => locator.waitFor({ state: 'visible', timeout: 6_000 });
 
 async function submit(page) {
@@ -95,24 +94,6 @@ async function run() {
     await page.getByRole('button', { name: '工作', exact: true }).click();
     await checkWindowsMCP(page);
 
-    // Simulate a future published release without creating a public test tag.
-    await app.evaluate(({ net, shell }) => {
-      net.fetch = async () => new Response(JSON.stringify({
-        tag_name: 'v99.0.0', assets: [{ name: 'cosmNotes-v99.0.0-Windows-x64-Setup.exe', state: 'uploaded' }]
-      }));
-      shell.openExternal = async url => { globalThis.smokeOpenedURL = url; };
-    });
-    const download = page.getByRole('button', { name: '下载更新 v99.0.0' });
-    const check = page.getByRole('button', { name: '检查更新…' });
-    await check.click();
-    if (!(await download.isVisible())) {
-      await page.locator('#footer').getByText('正在检查更新…').waitFor({ state: 'hidden', timeout: 15_000 });
-      if (!(await download.isVisible())) await check.click();
-    }
-    await visible(download);
-    await download.click();
-    assert.equal(await app.evaluate(() => globalThis.smokeOpenedURL), expectedURL);
-
     await app.close();
     app = await _electron.launch(options);
     const reopened = await app.firstWindow();
@@ -122,7 +103,7 @@ async function run() {
     assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isAlwaysOnTop()), true);
     const work = JSON.parse(fs.readFileSync(path.join(directory, 'work-items.json'), 'utf8'));
     assert.equal(work.find(item => item.title === 'Verify delivery')?.dueDate, '2099-05-01');
-    console.log('Verified desktop launch, timeline, floating notes, update button and data after restart.');
+    console.log('Verified desktop launch, timeline, floating notes and data after restart.');
   } finally {
     if (app) await app.close();
     fs.rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 300 });

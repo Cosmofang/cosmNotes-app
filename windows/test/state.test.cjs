@@ -5,10 +5,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { randomUUID } = require('node:crypto');
+const { randomUUID, generateKeyPairSync, sign } = require('node:crypto');
 const { validDay, sectionFor, orderedWork } = require('../src/model.js');
 const { Store } = require('../src/store.cjs');
-const { windowsUpdate } = require('../src/updates.cjs');
+const { installerName, manifestBytes, verifyManifest } = require('../src/updates.cjs');
 
 function fixture(test) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cosmnotes-test-'));
@@ -72,19 +72,19 @@ test('a malformed work file is preserved and cannot be overwritten by a save', c
   assert.equal(fs.readFileSync(path.join(directory, 'work-items.json'), 'utf8'), '{"unfinished":');
 });
 
-test('Windows release checks accept newer stable Windows installers only', () => {
-  const asset = name => ({ name, state: 'uploaded' });
-  const release = {
-    tag_name: 'v0.10.1',
-    draft: false,
-    prerelease: false,
-    assets: [asset('cosmNotes-v0.10.1-macOS.zip'), asset('cosmNotes-v0.10.1-Windows-x64-Setup.exe')]
-  };
-  assert.deepEqual(windowsUpdate(release, '0.6.0'), {
-    version: 'v0.10.1',
-    url: 'https://github.com/Cosmofang/cosmNotes-app/releases/download/v0.10.1/cosmNotes-v0.10.1-Windows-x64-Setup.exe'
-  });
-  assert.equal(windowsUpdate(release, '0.10.1'), null);
-  assert.equal(windowsUpdate({ ...release, assets: release.assets.slice(0, 1) }, '0.6.0'), null);
-  assert.equal(windowsUpdate({ ...release, prerelease: true }, '0.6.0'), null);
+test('only authentic Windows manifests with the expected installer can update', () => {
+  const keys = generateKeyPairSync('ed25519');
+  const publicKey = keys.publicKey.export({ format: 'der', type: 'spki' }).subarray(-32).toString('base64');
+  const version = '0.7.1';
+  const path = installerName(version);
+  const sha512 = Buffer.alloc(64, 3).toString('base64');
+  const manifest = { version, path, sha512, size: 30 };
+  const signature = sign(null, manifestBytes(manifest), keys.privateKey).toString('base64');
+  const info = { version, path, sha512, signature, files: [{ url: path, sha512, size: 30 }] };
+
+  assert.deepEqual(verifyManifest(info, publicKey), manifest);
+  assert.throws(() => verifyManifest({ ...info, files: [{ ...info.files[0], size: 31 }] }, publicKey),
+    /签名校验失败/);
+  assert.throws(() => verifyManifest({ ...info, path: 'unrelated.exe' }, publicKey), /更新信息无效/);
+  assert.throws(() => verifyManifest({ ...info, signature: '' }, publicKey), /更新信息无效/);
 });

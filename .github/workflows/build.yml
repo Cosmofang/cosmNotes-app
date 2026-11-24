@@ -40,13 +40,19 @@ jobs:
           fi
           swift run CosmNotesWorkChecks
           swift run StickyNotesGeometryChecks
-          swift run CosmNotesUpdateChecks
       - name: Build macOS packages
         run: ./build.sh --release
+      - name: Sign the macOS update feed
+        if: ${{ github.ref_type == 'tag' || github.event_name == 'workflow_dispatch' }}
+        env:
+          COSMNOTES_UPDATE_SIGNING_KEY: ${{ secrets.COSMNOTES_UPDATE_SIGNING_KEY }}
+        run: ./scripts/macos-update-feed.sh "build/cosmNotes-$RELEASE_TAG-macOS.zip" "${RELEASE_TAG#v}" build/appcast.xml
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release-macos
-          path: build/cosmNotes-*-macOS*.zip*
+          path: |
+            build/cosmNotes-*-macOS*.zip*
+            build/appcast.xml
           if-no-files-found: error
           compression-level: 0
 
@@ -73,7 +79,6 @@ jobs:
           cd ..
           swift run CosmNotesWorkChecks
           swift run StickyNotesGeometryChecks
-          swift run CosmNotesUpdateChecks
 
   windows:
     name: Windows x64 installer and desktop checks
@@ -104,6 +109,11 @@ jobs:
           $env:COSMNOTES_TEST_EXE = $installed
           $env:COSMNOTES_SMOKE_SCREENSHOT = Join-Path $env:RUNNER_TEMP 'cosmNotes-Windows.png'
           npm run smoke
+      - name: Verify a signed Windows in-app upgrade
+        run: |
+          $setup = Get-ChildItem dist -Filter '*-Windows-x64-Setup.exe' | Select-Object -First 1
+          $env:COSMNOTES_TEST_EXE = Join-Path $env:LOCALAPPDATA 'Programs\cosmNotes\cosmNotes.exe'
+          node test/upgrade.cjs $setup.FullName
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: windows-ui-check
@@ -132,11 +142,19 @@ jobs:
     concurrency:
       group: release-${{ inputs.release_tag || github.ref_name }}
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
+          persist-credentials: false
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: release-*
           path: packages
           merge-multiple: true
+      - name: Sign the Windows update feed
+        env:
+          COSMNOTES_UPDATE_SIGNING_KEY: ${{ secrets.COSMNOTES_UPDATE_SIGNING_KEY }}
+        run: node scripts/windows-update-feed.cjs "packages/cosmNotes-$RELEASE_TAG-Windows-x64-Setup.exe" "${RELEASE_TAG#v}" packages/latest.yml
       - name: Publish verified packages to GitHub Releases
         working-directory: packages
         env:
@@ -149,7 +167,9 @@ jobs:
           fi
           base="cosmNotes-$RELEASE_TAG"
           archives=("$base-macOS.zip" "$base-macOS-Intel.zip" "$base-Windows-x64-Setup.exe")
-          assets=()
+          assets=(appcast.xml latest.yml)
+          test -s appcast.xml
+          test -s latest.yml
           for archive in "${archives[@]}"; do
             sha256sum -c "$archive.sha256"
             assets+=("$archive" "$archive.sha256")
