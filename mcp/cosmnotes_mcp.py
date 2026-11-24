@@ -24,9 +24,12 @@ import uuid
 APP_NAME = "cosmNotes"
 BUNDLE_IDENTIFIER = "com.cosmofang.cosmnotes"
 URL_SCHEME = "cosmnotes"
+IS_WINDOWS = sys.platform == "win32"
+LOCAL_APP_DATA = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+DEFAULT_DATA_DIR = LOCAL_APP_DATA / APP_NAME if IS_WINDOWS else "~/Library/Application Support/" + APP_NAME
 DATA_DIR_OVERRIDE = os.environ.get("COSMNOTES_DATA_DIR")
 DATA_DIR = os.path.abspath(os.path.expanduser(
-    DATA_DIR_OVERRIDE or "~/Library/Application Support/" + APP_NAME))
+    DATA_DIR_OVERRIDE or DEFAULT_DATA_DIR))
 ADMIN_ENABLED = os.environ.get("COSMNOTES_ENABLE_ADMIN_TOOLS") == "1"
 
 
@@ -34,6 +37,11 @@ def _app_path():
     override = os.environ.get("COSMNOTES_APP_PATH")
     if override:
         return os.path.abspath(os.path.expanduser(override))
+    if IS_WINDOWS:
+        bundled = Path(__file__).resolve().parents[2] / (APP_NAME + ".exe")
+        if bundled.is_file():
+            return str(bundled)
+        return str(LOCAL_APP_DATA / "Programs" / APP_NAME / (APP_NAME + ".exe"))
     for parent in Path(__file__).resolve().parents:
         if parent.suffix == ".app":
             return str(parent)
@@ -266,7 +274,7 @@ ADMIN_TOOLS = [
     },
 ]
 
-TOOLS = BASE_TOOLS + (ADMIN_TOOLS if ADMIN_ENABLED else [])
+TOOLS = [BASE_TOOLS[0]] if IS_WINDOWS else BASE_TOOLS + (ADMIN_TOOLS if ADMIN_ENABLED else [])
 
 NOTE_DEFAULTS = {
     "text": "", "kind": "text", "theme": "lemon", "mode": "floating",
@@ -547,16 +555,21 @@ def create_work(args):
     inbox = Path(DATA_DIR) / "work-requests"
     inbox.mkdir(mode=0o700, parents=True, exist_ok=True)
     request = inbox / (work_id + ".json")
-    descriptor = os.open(request, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as out:
-            json.dump(payload, out, ensure_ascii=False)
-        try:
-            _open_command("work-create", {"id": work_id}, background=True)
-        except subprocess.TimeoutExpired:
-            # Launch Services may already have delivered the wake-up. Check disk before reporting.
-            pass
-        deadline = time.monotonic() + 8
+        _atomic_write_json(request, payload)
+        if IS_WINDOWS:
+            if not Path(APP_PATH).is_file():
+                raise FileNotFoundError("找不到 cosmNotes.exe：{}".format(APP_PATH))
+            subprocess.Popen([APP_PATH, "--background-work"], stdin=subprocess.DEVNULL,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP)
+        else:
+            try:
+                _open_command("work-create", {"id": work_id}, background=True)
+            except subprocess.TimeoutExpired:
+                # Launch Services may already have delivered the wake-up. Check disk before reporting.
+                pass
+        deadline = time.monotonic() + (15 if IS_WINDOWS else 8)
         while time.monotonic() < deadline:
             if any(
                 row.get("id", "").lower() == work_id
@@ -771,7 +784,9 @@ HANDLERS = {
     "show_history": show_history,
 }
 
-if ADMIN_ENABLED:
+if IS_WINDOWS:
+    HANDLERS = {"create_work": create_work}
+elif ADMIN_ENABLED:
     HANDLERS.update({
         "admin_export_data": admin_export_data,
         "admin_overwrite_data": admin_overwrite_data,
@@ -789,6 +804,9 @@ def reply(msg_id, result=None, error=None):
 
 
 def main():
+    if IS_WINDOWS:
+        sys.stdin.reconfigure(encoding="utf-8")
+        sys.stdout.reconfigure(encoding="utf-8")
     for line in sys.stdin:
         line = line.strip()
         if not line:

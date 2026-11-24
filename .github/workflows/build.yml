@@ -1,0 +1,149 @@
+name: Desktop builds and release
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing version tag to publish
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  RELEASE_TAG: ${{ inputs.release_tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
+
+jobs:
+  macos:
+    name: macOS universal and Intel packages
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
+      - name: Validate version and run macOS checks
+        run: |
+          version="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' Resources/Info.plist)"
+          test "$version" = "$(node -p 'require("./windows/package.json").version')"
+          if [[ -n "$RELEASE_TAG" && "$RELEASE_TAG" != "v$version" ]]; then
+            echo "The release tag must match the version in both app manifests."
+            exit 1
+          fi
+          swift run CosmNotesWorkChecks
+          swift run StickyNotesGeometryChecks
+          swift run CosmNotesUpdateChecks
+      - name: Build macOS packages
+        run: ./build.sh --release
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-macos
+          path: build/cosmNotes-*-macOS*.zip*
+          if-no-files-found: error
+          compression-level: 0
+
+  intel:
+    name: Intel Mac native checks
+    runs-on: macos-15-intel
+    needs: macos
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-macos
+          path: packages
+      - name: Verify the Intel app and run Intel checks
+        run: |
+          test "$(uname -m)" = x86_64
+          cd packages
+          shasum -a 256 -c *-Intel.zip.sha256
+          ditto -x -k *-Intel.zip .
+          test "$(lipo -archs cosmNotes.app/Contents/MacOS/cosmNotes)" = x86_64
+          codesign --verify --deep --strict cosmNotes.app
+          cd ..
+          swift run CosmNotesWorkChecks
+          swift run StickyNotesGeometryChecks
+          swift run CosmNotesUpdateChecks
+
+  windows:
+    name: Windows x64 installer and desktop checks
+    runs-on: windows-2022
+    defaults:
+      run:
+        working-directory: windows
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: windows/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm test
+      - run: npm run dist
+      - name: Install the package and exercise the desktop app
+        run: |
+          $setup = Get-ChildItem dist -Filter '*-Windows-x64-Setup.exe' | Select-Object -First 1
+          if (!$setup) { throw "Windows installer was not generated" }
+          $result = Start-Process -FilePath $setup.FullName -ArgumentList '/S' -Wait -PassThru
+          if ($result.ExitCode -ne 0) { throw "Installer exited with $($result.ExitCode)" }
+          $installed = Join-Path $env:LOCALAPPDATA 'Programs\cosmNotes\cosmNotes.exe'
+          if (!(Test-Path -LiteralPath $installed)) { throw "cosmNotes.exe was not installed" }
+          $env:COSMNOTES_TEST_EXE = $installed
+          $env:COSMNOTES_SMOKE_SCREENSHOT = Join-Path $env:RUNNER_TEMP 'cosmNotes-Windows.png'
+          npm run smoke
+      - name: Generate the installer checksum
+        run: |
+          $setup = Get-ChildItem dist -Filter '*-Windows-x64-Setup.exe' | Select-Object -First 1
+          $digest = (Get-FileHash -Algorithm SHA256 -LiteralPath $setup.FullName).Hash.ToLowerInvariant()
+          "$digest  $($setup.Name)" | Set-Content -Encoding ascii -LiteralPath "$($setup.FullName).sha256"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-windows
+          path: |
+            windows/dist/cosmNotes-*-Windows-x64-Setup.exe
+            windows/dist/cosmNotes-*-Windows-x64-Setup.exe.sha256
+          if-no-files-found: error
+          compression-level: 0
+
+  release:
+    if: ${{ github.ref_type == 'tag' || github.event_name == 'workflow_dispatch' }}
+    needs: [macos, intel, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: release-${{ inputs.release_tag || github.ref_name }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: release-*
+          path: packages
+          merge-multiple: true
+      - name: Publish verified packages to GitHub Releases
+        working-directory: packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "The release tag must use vMAJOR.MINOR.PATCH."
+            exit 1
+          fi
+          base="cosmNotes-$RELEASE_TAG"
+          archives=("$base-macOS.zip" "$base-macOS-Intel.zip" "$base-Windows-x64-Setup.exe")
+          assets=()
+          for archive in "${archives[@]}"; do
+            sha256sum -c "$archive.sha256"
+            assets+=("$archive" "$archive.sha256")
+          done
+          gh release create "$RELEASE_TAG" "${assets[@]}" \
+            --verify-tag --title "cosmNotes $RELEASE_TAG" --generate-notes --latest

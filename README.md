@@ -2,11 +2,11 @@
 
 **中文** | [English](README.en.md)
 
-一个用原生 Swift 和 SwiftUI 编写的 macOS 桌面便签应用，无第三方依赖。
+支持 macOS 和 Windows 的桌面浮窗便签与工作时间轴。
 
 cosmNotes 是「StickyNotes 大神的迭代版」，基于 simony3 开发的 StickyNotes v2.2.0。仓库和应用包均保留原版 MIT 许可及版权声明。[StickyNotes v2.2.0](https://github.com/simony3/StickyNotes/tree/v2.2.0)
 
-## 截图
+## macOS 截图
 
 <table>
   <tr>
@@ -28,7 +28,7 @@ cosmNotes 是「StickyNotes 大神的迭代版」，基于 simony3 开发的 Sti
 <img src="docs/screenshots/capsule-text-snapped.png" width="112" alt="吸附左边缘的文字便签折叠条"><br>
 <img src="docs/screenshots/capsule-free.png" width="135" alt="未吸附的折叠条, 两端圆角胶囊形">
 
-## 功能
+## macOS 功能
 
 - **两种便签类型**
   - 📝 **文字便签**：支持 Markdown（标题、列表、待办语法、引用、粗体/斜体/行内代码、分割线），一键切换编辑/预览
@@ -51,7 +51,13 @@ cosmNotes 是「StickyNotes 大神的迭代版」，基于 simony3 开发的 Sti
 
 ## 安装
 
-需要 macOS 14 或更新版本。下载 ZIP 并解压，将 `cosmNotes.app` 拖入「应用程序」。ZIP 包支持 Apple Silicon 和 Intel Mac，采用临时签名。[下载最新版](https://github.com/Cosmofang/cosmNotes-app/releases/latest)
+| 系统 | 下载文件 |
+| --- | --- |
+| macOS 14+，Intel Mac | 文件名以 `-macOS-Intel.zip` 结尾 |
+| macOS 14+，Apple Silicon 或 Intel Mac | 文件名以 `-macOS.zip` 结尾 |
+| Windows 10 / 11，64 位（x64） | 文件名以 `-Windows-x64-Setup.exe` 结尾 |
+
+Mac 下载 ZIP 后解压并将 cosmNotes.app 拖入「应用程序」。Windows 运行安装程序，安装完成后从开始菜单启动。macOS 安装包使用临时签名，Windows 安装程序尚未使用证书签名。[下载最新版](https://github.com/Cosmofang/cosmNotes-app/releases/latest)
 
 也可以安装 Xcode Command Line Tools（`xcode-select --install`）后在本机编译。
 
@@ -65,9 +71,15 @@ cd cosmNotes-app
 
 ### 软件更新
 
-cosmNotes 启动时及运行期间每四小时检查 GitHub Releases。发现新版后，菜单栏会显示下载提示。也可以点「检查更新…」立即检查。点「下载更新」获取 ZIP。解压后退出旧版，再把新应用拖入「应用程序」完成更新。
+cosmNotes 启动时及运行期间每四小时检查 GitHub Releases。Mac 菜单栏、Windows 窗口底部和系统托盘都可以手动「检查更新…」。点「下载更新」获取对应系统的安装包。Mac 解压后退出旧版并替换应用。Windows 从托盘退出应用后运行新版安装程序。
 
-## 使用
+### Windows 版
+
+在「工作」标签页管理项目、月历、截止日期、置顶和概要。项目和工作支持拖动排序，窗口支持置顶、收拢和调整大小。在「便签」标签页打开独立浮窗，勾选待办、归档便签或从历史恢复。Windows 便签支持标题、粗体、行内代码和复选框。Codex 可以通过 MCP 的 create_work 新增工作。
+
+从源码运行 Windows 版需要 Node.js 22.12 或更新版本。在仓库根目录运行 `npm --prefix windows ci` 和 `npm --prefix windows start`。在 Windows 工作环境运行 `npm --prefix windows run dist` 生成 x64 安装程序。
+
+## macOS 使用
 
 展开工作时间轴后，点击右上角太阳和月亮开关的任意位置，即可在浅色和深色外观之间切换。便签、月历和表单会一起切换，重新打开应用时会恢复上次选择。macOS 26 起支持原生 Liquid Glass 控件。
 
@@ -159,11 +171,21 @@ claude mcp add cosmnotes -- python3 /Applications/cosmNotes.app/Contents/Resourc
 
 重启客户端后 AI 即可看到上述工具。
 
+Windows 安装 Python 3 后，在 Codex 中使用下面的配置。将示例用户名换成本机用户名，或使用实际的安装路径。Windows 首版提供 create_work。
+
+```toml
+[mcp_servers.cosmnotes]
+command = "py"
+args = ['-3', 'C:\Users\YourName\AppData\Local\Programs\cosmNotes\resources\mcp\cosmnotes_mcp.py']
+```
+
 ## 数据存储
 
 便签、历史、工作和项目保存在 `~/Library/Application Support/cosmNotes/` 下的 `notes.json`、`history.json`、`work-items.json` 和 `work-projects.json`，均为明文 JSON。
 
 隔离测试时，在启动应用前退出当前运行的 cosmNotes，并为应用和 MCP 进程指定相同的 `COSMNOTES_DATA_DIR`。从源码运行 MCP 脚本时，可用 `COSMNOTES_APP_PATH` 指定测试用的应用包。
+
+Windows 的本地数据位于 `%LOCALAPPDATA%\cosmNotes`。工作和项目使用相同的 JSON 文件名与截止日期格式。Windows 便签、归档和窗口偏好保存在 windows-notes.json 和 windows-preferences.json。
 
 ## 项目结构
 
@@ -178,15 +200,16 @@ Sources/StickyNotes/
 ├── WorkTimeline.swift  # 工作时间轴窗口和编辑表单
 └── NoteWindow.swift    # 无边框窗口、三种层级模式、折叠与边缘吸附
 Sources/CosmNotesWork/  # 工作数据、日期分组、保存和本地请求
+windows/              # Windows 桌面应用及安装程序
 mcp/
-└── cosmnotes_mcp.py    # MCP 服务器: AI 客户端控制便签的入口
+└── cosmnotes_mcp.py    # AI 接入
 ```
 
 ## 共同迭代
 
 从公开仓库的 `main` 开分支提交 Pull Request。没有写权限时，可以先 Fork 再提交 Pull Request。GitHub Actions 会编译应用并检查工作保存、窗口几何和版本识别。[公开仓库](https://github.com/Cosmofang/cosmNotes-app)
 
-发布新版本时，更新 `Resources/Info.plist` 的版本号和构建号。给合入的提交推送对应的 `vMAJOR.MINOR.PATCH` 标签，GitHub Actions 就会生成通用 ZIP 和 SHA-256 校验文件并发布到 Releases。
+发布时同步更新 Resources/Info.plist 和 windows/package.json 的版本号，更新 Windows 锁文件及 macOS 构建号。为合入的提交推送对应的 vMAJOR.MINOR.PATCH 标签，GitHub Actions 会测试并发布 macOS 通用包、Intel 独立包、Windows x64 安装程序及对应的 SHA-256 校验文件。
 
 ## License
 

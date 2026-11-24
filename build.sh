@@ -1,45 +1,58 @@
 #!/bin/bash
 # 编译并打包 cosmNotes.app
-set -e
+set -euo pipefail
 cd "$(dirname "$0")"
 
 APP="build/cosmNotes.app"
 RELEASE_MODE="${1:-}"
 
+bundle_app() {
+    local executable="$1"
+    local bundle="$2"
+    echo "==> 打包 $bundle ..."
+    rm -rf "$bundle"
+    mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources/mcp"
+    cp "$executable" "$bundle/Contents/MacOS/cosmNotes"
+    cp Resources/Info.plist "$bundle/Contents/Info.plist"
+    cp Resources/AppIcon.icns LICENSE "$bundle/Contents/Resources/"
+    cp mcp/cosmnotes_mcp.py "$bundle/Contents/Resources/mcp/"
+    codesign --force --deep -s - "$bundle"
+    codesign --verify --deep --strict "$bundle"
+}
+
+archive_app() {
+    local bundle="$1"
+    local archive="$2"
+    rm -f "build/$archive"
+    ditto -c -k --sequesterRsrc --keepParent "$bundle" "build/$archive"
+    (cd build && shasum -a 256 "$archive" > "$archive.sha256")
+    echo "==> 已生成 build/$archive"
+}
+
 echo "==> 编译 (release)..."
 if [ "$RELEASE_MODE" = "--release" ]; then
+    STAGING="$(mktemp -d "${TMPDIR:-/tmp}/cosmnotes-build.XXXXXX")"
+    trap 'rm -rf "$STAGING"' EXIT
     swift build -c release --arch arm64 --product cosmNotes
     swift build -c release --arch x86_64 --product cosmNotes
     ARM_BIN="$(swift build -c release --arch arm64 --show-bin-path)/cosmNotes"
     INTEL_BIN="$(swift build -c release --arch x86_64 --show-bin-path)/cosmNotes"
+
+    xcrun lipo -create "$ARM_BIN" "$INTEL_BIN" -output "$STAGING/cosmNotes"
+    xcrun lipo "$STAGING/cosmNotes" -verify_arch arm64 x86_64
+    bundle_app "$STAGING/cosmNotes" "$APP"
+
+    INTEL_APP="$STAGING/Intel/cosmNotes.app"
+    test "$(xcrun lipo -archs "$INTEL_BIN")" = "x86_64"
+    bundle_app "$INTEL_BIN" "$INTEL_APP"
+
+    VERSION="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' Resources/Info.plist)"
+    archive_app "$APP" "cosmNotes-v$VERSION-macOS.zip"
+    archive_app "$INTEL_APP" "cosmNotes-v$VERSION-macOS-Intel.zip"
 else
     swift build -c release --product cosmNotes
+    NATIVE_BIN="$(swift build -c release --show-bin-path)/cosmNotes"
+    bundle_app "$NATIVE_BIN" "$APP"
 fi
 
-echo "==> 打包 $APP ..."
-rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/mcp"
-if [ "$RELEASE_MODE" = "--release" ]; then
-    xcrun lipo -create "$ARM_BIN" "$INTEL_BIN" -output "$APP/Contents/MacOS/cosmNotes"
-    xcrun lipo "$APP/Contents/MacOS/cosmNotes" -verify_arch arm64 x86_64
-else
-    cp .build/release/cosmNotes "$APP/Contents/MacOS/cosmNotes"
-fi
-cp Resources/Info.plist "$APP/Contents/Info.plist"
-cp Resources/AppIcon.icns LICENSE "$APP/Contents/Resources/"
-cp mcp/cosmnotes_mcp.py "$APP/Contents/Resources/mcp/"
-
-echo "==> 签名 (ad-hoc)..."
-codesign --force --deep -s - "$APP"
-codesign --verify --deep --strict "$APP"
-
-if [ "$RELEASE_MODE" = "--release" ]; then
-    VERSION="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$APP/Contents/Info.plist")"
-    ARCHIVE="cosmNotes-v$VERSION-macOS.zip"
-    rm -f "build/$ARCHIVE"
-    ditto -c -k --sequesterRsrc --keepParent "$APP" "build/$ARCHIVE"
-    (cd build && shasum -a 256 "$ARCHIVE" > "$ARCHIVE.sha256")
-    echo "✅ 已生成 build/$ARCHIVE"
-fi
-
-echo "✅ 已生成 $APP"
+echo "==> 已生成 $APP"

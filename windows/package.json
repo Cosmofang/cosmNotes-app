@@ -1,0 +1,47 @@
+{
+  "name": "cosmnotes-windows",
+  "version": "0.6.0",
+  "private": true,
+  "description": "cosmNotes desktop notes and work timeline",
+  "author": "Cosmofang",
+  "license": "MIT",
+  "main": "src/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.cjs",
+    "dist": "electron-builder --win nsis --x64 --publish never",
+    "smoke": "node test/smoke.cjs"
+  },
+  "build": {
+    "appId": "com.cosmofang.cosmnotes",
+    "productName": "cosmNotes",
+    "artifactName": "cosmNotes-v${version}-Windows-${arch}-Setup.${ext}",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "resources/icon.png",
+      "package.json"
+    ],
+    "extraResources": [
+      { "from": "../LICENSE", "to": "LICENSE" },
+      { "from": "../mcp/cosmnotes_mcp.py", "to": "mcp/cosmnotes_mcp.py" }
+    ],
+    "win": {
+      "icon": "resources/icon.ico",
+      "target": ["nsis"]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "runAfterFinish": false,
+      "deleteAppDataOnUninstall": false
+    }
+  },
+  "devDependencies": {
+    "electron": "45.4.1",
+    "electron-builder": "26.18.0",
+    "playwright-core": "1.65.1"
+  }
+}
