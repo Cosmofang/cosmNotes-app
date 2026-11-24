@@ -38,8 +38,7 @@ jobs:
             echo "The release tag must match the version in both app manifests."
             exit 1
           fi
-          swift run CosmNotesWorkChecks
-          swift run StickyNotesGeometryChecks
+          ./scripts/check-macos.sh
       - name: Build macOS packages
         run: ./build.sh --release
       - name: Sign the macOS update feed
@@ -77,8 +76,7 @@ jobs:
           test "$(lipo -archs cosmNotes.app/Contents/MacOS/cosmNotes)" = x86_64
           codesign --verify --deep --strict cosmNotes.app
           cd ..
-          swift run CosmNotesWorkChecks
-          swift run StickyNotesGeometryChecks
+          ./scripts/check-macos.sh
 
   windows:
     name: Windows x64 installer and desktop checks
